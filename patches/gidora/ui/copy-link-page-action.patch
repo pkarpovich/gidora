@@ -1,0 +1,54 @@
+--- a/chrome/browser/ui/page_action/action_ids.h
++++ b/chrome/browser/ui/page_action/action_ids.h
+@@ -55,6 +55,7 @@ inline constexpr auto kActionIds = std::
+     kActionShowPaymentsChurnedUsersBubble,
+     kActionFakePageActionForDebug,
+     kActionWalletReminderNotice,
++    kActionCopyUrl,
+ 
+     // Add any new page actions before this line to ensure that the bookmark
+     // star is always the right-most page action.
+--- a/chrome/browser/ui/page_action/page_action_icon_type.h
++++ b/chrome/browser/ui/page_action/page_action_icon_type.h
+@@ -62,7 +62,8 @@ enum class PageActionIconType {
+   kPaymentsChurnedUsers = 47,
+   kFakePageActionForDebug = 48,
+   kWalletReminderNotice = 49,
+-  kMaxValue = kWalletReminderNotice,
++  kCopyUrl = 50,
++  kMaxValue = kCopyUrl,
+ };
+ // LINT.ThenChange(//tools/metrics/histograms/metadata/page/enums.xml:PageActionIconType)
+ 
+--- a/chrome/browser/ui/page_action/page_action_properties_provider.cc
++++ b/chrome/browser/ui/page_action/page_action_properties_provider.cc
+@@ -342,6 +342,14 @@ constexpr auto kPageActionProperties = b
+             .element_identifier = kPageActionWalletReminderNoticeElementId,
+         },
+     },
++    {
++        kActionCopyUrl,
++        {
++            .histogram_name = "CopyUrl",
++            .is_ephemeral = false,
++            .type = PageActionIconType::kCopyUrl,
++        },
++    },
+ });
+ // LINT.ThenChange(//components/browser_apis/ui_controllers/toolbar/toolbar_ui_api_data_model.mojom:PageActionId,//chrome/browser/ui/page_action/action_ids.h:kActionIds)
+ 
+--- a/chrome/browser/ui/tabs/tab_features.cc
++++ b/chrome/browser/ui/tabs/tab_features.cc
+@@ -577,6 +577,12 @@ void TabFeatures::Init(TabInterface& tab
+             tab, tab, profile->GetPrefs(), *page_action_controller_);
+   }
+ 
++  if (tab.GetBrowserWindowInterface()->GetType() ==
++          BrowserWindowInterface::TYPE_NORMAL &&
++      page_action_controller_->ActionExists(kActionCopyUrl)) {
++    page_action_controller_->Show(kActionCopyUrl);
++  }
++
+   if (base::FeatureList::IsEnabled(
+           record_replay::features::kRecordReplayBase) &&
+       page_action_controller_->ActionExists(kActionRecordReplay)) {
