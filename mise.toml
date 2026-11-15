@@ -1,0 +1,25 @@
+[tools]
+python = "3.13.18"
+uv = "0.13.8"
+sccache = "0.19.0"
+
+[env]
+_.python.venv = { path = ".venv", create = true }
+SCCACHE_CACHE_SIZE = "50G"
+
+[tasks.deps]
+description = "Install the Python packages the build scripts import"
+run = "uv pip install --quiet requests==2.34.2 pillow==13.0.0"
+
+[tasks.setup]
+description = "Download Chromium, apply the patches and generate the build files"
+depends = ["deps"]
+run = "zsh -c 'unset GOROOT GOBIN GOTOOLDIR; source dev.sh && he setup'"
+
+[tasks.build]
+description = "Build the development binary"
+run = "zsh -c 'unset GOROOT GOBIN GOTOOLDIR; source dev.sh && he build'"
+
+[tasks.start]
+description = "Run the development build with its own data directory"
+run = "zsh -c 'source dev.sh && he run'"
