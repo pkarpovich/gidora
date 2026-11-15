@@ -1,6 +1,6 @@
 --- a/chrome/browser/BUILD.gn
 +++ b/chrome/browser/BUILD.gn
-@@ -1039,6 +1039,14 @@ source_set("core") {
+@@ -1039,6 +1039,18 @@ source_set("core") {
      "file_select_helper.cc",
      "font_family_cache.cc",
      "font_family_cache.h",
@@ -10,6 +10,10 @@
 +    "gidora/control/control_prefs.h",
 +    "gidora/control/control_server.cc",
 +    "gidora/control/control_server.h",
++    "gidora/control/page_commands.cc",
++    "gidora/control/page_commands.h",
++    "gidora/control/page_session.cc",
++    "gidora/control/page_session.h",
 +    "gidora/control/tab_commands.cc",
 +    "gidora/control/tab_commands.h",
      "global_features.cc",
@@ -46,7 +50,7 @@
    }
 --- /dev/null
 +++ b/chrome/browser/gidora/control/control_dispatcher.cc
-@@ -0,0 +1,99 @@
+@@ -0,0 +1,107 @@
 +// Copyright 2026 The Gidora Authors
 +// You can use, redistribute, and/or modify this source code under
 +// the terms of the GPL-3.0 license that can be found in the LICENSE file.
@@ -61,6 +65,8 @@
 +#include "base/json/json_writer.h"
 +#include "base/strings/strcat.h"
 +#include "base/version_info/version_info.h"
++#include "chrome/browser/gidora/control/page_commands.h"
++#include "chrome/browser/gidora/control/page_session.h"
 +#include "chrome/browser/gidora/control/tab_commands.h"
 +#include "content/public/browser/browser_thread.h"
 +
@@ -100,12 +106,18 @@
 +  return Line(base::DictValue().Set("ok", false).Set("error", message));
 +}
 +
-+ControlDispatcher::ControlDispatcher() {
++ControlDispatcher::ControlDispatcher()
++    : sessions_(std::make_unique<PageSessions>()) {
++  PageSessions* sessions = sessions_.get();
 +  handlers_.emplace("version", base::BindRepeating(&Version));
 +  handlers_.emplace("tab.list", base::BindRepeating(&TabList));
-+  handlers_.emplace("tab.new", base::BindRepeating(&TabNew));
++  handlers_.emplace("tab.new", base::BindRepeating(&TabNew, sessions));
 +  handlers_.emplace("tab.go", base::BindRepeating(&TabGo));
 +  handlers_.emplace("tab.close", base::BindRepeating(&TabClose));
++  handlers_.emplace("tab.text", base::BindRepeating(&TabText, sessions));
++  handlers_.emplace("tab.html", base::BindRepeating(&TabHtml, sessions));
++  handlers_.emplace("tab.eval", base::BindRepeating(&TabEval, sessions));
++  handlers_.emplace("tab.shot", base::BindRepeating(&TabShot, sessions));
 +}
 +
 +ControlDispatcher::~ControlDispatcher() = default;
@@ -148,7 +160,7 @@
 +}  // namespace gidora::control
 --- /dev/null
 +++ b/chrome/browser/gidora/control/control_dispatcher.h
-@@ -0,0 +1,45 @@
+@@ -0,0 +1,49 @@
 +// Copyright 2026 The Gidora Authors
 +// You can use, redistribute, and/or modify this source code under
 +// the terms of the GPL-3.0 license that can be found in the LICENSE file.
@@ -156,6 +168,7 @@
 +#ifndef CHROME_BROWSER_GIDORA_CONTROL_CONTROL_DISPATCHER_H_
 +#define CHROME_BROWSER_GIDORA_CONTROL_CONTROL_DISPATCHER_H_
 +
++#include <memory>
 +#include <string>
 +#include <string_view>
 +
@@ -166,6 +179,8 @@
 +#include "base/values.h"
 +
 +namespace gidora::control {
++
++class PageSessions;
 +
 +using CommandResult = base::expected<base::DictValue, std::string>;
 +using CommandCallback = base::OnceCallback<void(CommandResult)>;
@@ -187,6 +202,7 @@
 +  base::WeakPtr<ControlDispatcher> AsWeakPtr();
 +
 + private:
++  std::unique_ptr<PageSessions> sessions_;
 +  base::flat_map<std::string, CommandHandler> handlers_;
 +  base::WeakPtrFactory<ControlDispatcher> weak_factory_{this};
 +};
@@ -648,7 +664,7 @@
  #endif
 --- /dev/null
 +++ b/chrome/browser/gidora/control/tab_commands.cc
-@@ -0,0 +1,262 @@
+@@ -0,0 +1,266 @@
 +// Copyright 2026 The Gidora Authors
 +// You can use, redistribute, and/or modify this source code under
 +// the terms of the GPL-3.0 license that can be found in the LICENSE file.
@@ -664,6 +680,7 @@
 +#include "base/strings/utf_string_conversions.h"
 +#include "base/time/time.h"
 +#include "base/timer/timer.h"
++#include "chrome/browser/gidora/control/page_session.h"
 +#include "chrome/browser/profiles/profile.h"
 +#include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 +#include "chrome/browser/ui/browser_window/public/browser_window_interface_iterator.h"
@@ -688,10 +705,6 @@
 +bool IsEligible(BrowserWindowInterface* window) {
 +  return window->GetType() == BrowserWindowInterface::TYPE_NORMAL &&
 +         !window->GetProfile()->IsOffTheRecord();
-+}
-+
-+int IdOf(content::WebContents* contents) {
-+  return sessions::SessionTabHelper::IdForTab(contents).id();
 +}
 +
 +BrowserWindowInterface* LastActiveEligibleWindow() {
@@ -751,7 +764,7 @@
 +  void Finish(bool loading) {
 +    std::move(callback_).Run(
 +        base::DictValue()
-+            .Set("id", IdOf(web_contents()))
++            .Set("id", TabIdOf(web_contents()))
 +            .Set("url", web_contents()->GetLastCommittedURL().spec())
 +            .Set("loading", loading));
 +    delete this;
@@ -770,7 +783,7 @@
 + private:
 +  CloseWaiter(content::WebContents* contents, CommandCallback callback)
 +      : content::WebContentsObserver(contents),
-+        id_(IdOf(contents)),
++        id_(TabIdOf(contents)),
 +        callback_(std::move(callback)) {
 +    timer_.Start(
 +        FROM_HERE, kTabTimeout,
@@ -794,6 +807,10 @@
 +
 +}  // namespace
 +
++int TabIdOf(content::WebContents* contents) {
++  return sessions::SessionTabHelper::IdForTab(contents).id();
++}
++
 +base::expected<ResolvedTab, std::string> ResolveTab(
 +    const base::DictValue& args) {
 +  const base::Value* tab = args.Find("tab");
@@ -807,7 +824,7 @@
 +    if (!contents) {
 +      return base::unexpected("no active tab");
 +    }
-+    return ResolvedTab{IdOf(contents), contents, window};
++    return ResolvedTab{TabIdOf(contents), contents, window};
 +  }
 +  if (!tab->is_int()) {
 +    return base::unexpected("invalid request: tab is not an integer");
@@ -822,7 +839,7 @@
 +        TabStripModel* tabs = window->GetTabStripModel();
 +        for (int index = 0; index < tabs->count(); ++index) {
 +          content::WebContents* contents = tabs->GetWebContentsAt(index);
-+          if (IdOf(contents) == id) {
++          if (TabIdOf(contents) == id) {
 +            found = ResolvedTab{id, contents, window};
 +            return false;
 +          }
@@ -848,7 +865,7 @@
 +          content::WebContents* contents = tabs->GetWebContentsAt(index);
 +          list.Append(
 +              base::DictValue()
-+                  .Set("id", IdOf(contents))
++                  .Set("id", TabIdOf(contents))
 +                  .Set("window", window->GetSessionID().id())
 +                  .Set("active", index == tabs->active_index())
 +                  .Set("loading", contents->IsLoading())
@@ -860,7 +877,9 @@
 +  std::move(callback).Run(base::DictValue().Set("tabs", std::move(list)));
 +}
 +
-+void TabNew(base::DictValue args, CommandCallback callback) {
++void TabNew(PageSessions* sessions,
++            base::DictValue args,
++            CommandCallback callback) {
 +  base::expected<GURL, std::string> url = WebUrl(args);
 +  if (!url.has_value()) {
 +    std::move(callback).Run(base::unexpected(url.error()));
@@ -879,6 +898,7 @@
 +    std::move(callback).Run(base::unexpected("the tab could not be opened"));
 +    return;
 +  }
++  sessions->Keep(contents);
 +  LoadWaiter::Start(contents, std::move(callback));
 +}
 +
@@ -913,7 +933,7 @@
 +}  // namespace gidora::control
 --- /dev/null
 +++ b/chrome/browser/gidora/control/tab_commands.h
-@@ -0,0 +1,39 @@
+@@ -0,0 +1,45 @@
 +// Copyright 2026 The Gidora Authors
 +// You can use, redistribute, and/or modify this source code under
 +// the terms of the GPL-3.0 license that can be found in the LICENSE file.
@@ -936,20 +956,587 @@
 +
 +namespace gidora::control {
 +
++class PageSessions;
++
 +struct ResolvedTab {
 +  int id;
 +  raw_ptr<content::WebContents> contents;
 +  raw_ptr<BrowserWindowInterface> window;
 +};
 +
++int TabIdOf(content::WebContents* contents);
++
 +base::expected<ResolvedTab, std::string> ResolveTab(
 +    const base::DictValue& args);
 +
 +void TabList(base::DictValue args, CommandCallback callback);
-+void TabNew(base::DictValue args, CommandCallback callback);
++void TabNew(PageSessions* sessions,
++            base::DictValue args,
++            CommandCallback callback);
 +void TabGo(base::DictValue args, CommandCallback callback);
 +void TabClose(base::DictValue args, CommandCallback callback);
 +
 +}  // namespace gidora::control
 +
 +#endif  // CHROME_BROWSER_GIDORA_CONTROL_TAB_COMMANDS_H_
+--- /dev/null
++++ b/chrome/browser/gidora/control/page_commands.cc
+@@ -0,0 +1,244 @@
++// Copyright 2026 The Gidora Authors
++// You can use, redistribute, and/or modify this source code under
++// the terms of the GPL-3.0 license that can be found in the LICENSE file.
++
++#include "chrome/browser/gidora/control/page_commands.h"
++
++#include <optional>
++#include <string>
++#include <string_view>
++#include <utility>
++
++#include "base/functional/bind.h"
++#include "base/json/json_writer.h"
++#include "base/memory/weak_ptr.h"
++#include "base/strings/strcat.h"
++#include "base/strings/string_number_conversions.h"
++#include "base/time/time.h"
++#include "base/timer/timer.h"
++#include "base/types/expected.h"
++#include "chrome/browser/gidora/control/page_session.h"
++#include "chrome/browser/gidora/control/tab_commands.h"
++#include "content/public/browser/web_contents.h"
++#include "url/gurl.h"
++
++namespace gidora::control {
++
++namespace {
++
++constexpr base::TimeDelta kCommandTimeout = base::Seconds(30);
++constexpr char kTimedOut[] = "timed out after 30 s";
++constexpr char kTextScript[] =
++    R"(document.body ? document.body.innerText : "")";
++constexpr char kHtmlScript[] = "document.documentElement.outerHTML";
++
++using ValueResult = base::expected<base::Value, std::string>;
++using ValueCallback = base::OnceCallback<void(ValueResult)>;
++using Step = base::OnceCallback<void(base::WeakPtr<PageSession> session,
++                                     int tab_id,
++                                     base::DictValue args,
++                                     CommandCallback done)>;
++
++class Completion {
++ public:
++  Completion(base::WeakPtr<PageSessions> sessions,
++             int tab_id,
++             CommandCallback callback)
++      : sessions_(std::move(sessions)),
++        tab_id_(tab_id),
++        callback_(std::move(callback)) {
++    timer_.Start(
++        FROM_HERE, kCommandTimeout,
++        base::BindOnce(&Completion::OnTimeout, base::Unretained(this)));
++  }
++
++  CommandCallback AsCallback() {
++    return base::BindOnce(&Completion::Done, weak_factory_.GetWeakPtr());
++  }
++
++ private:
++  void OnTimeout() { Done(base::unexpected(kTimedOut)); }
++
++  void Done(CommandResult result) {
++    std::move(callback_).Run(std::move(result));
++    if (sessions_) {
++      sessions_->Release(tab_id_);
++    }
++    delete this;
++  }
++
++  base::WeakPtr<PageSessions> sessions_;
++  const int tab_id_;
++  CommandCallback callback_;
++  base::OneShotTimer timer_;
++  base::WeakPtrFactory<Completion> weak_factory_{this};
++};
++
++void RunOnPage(PageSessions* sessions,
++               base::DictValue args,
++               CommandCallback callback,
++               Step step) {
++  base::expected<ResolvedTab, std::string> tab = ResolveTab(args);
++  if (!tab.has_value()) {
++    std::move(callback).Run(base::unexpected(tab.error()));
++    return;
++  }
++  std::string id = base::NumberToString(tab->id);
++  if (!tab->contents->GetLastCommittedURL().SchemeIsHTTPOrHTTPS()) {
++    std::move(callback).Run(base::unexpected(
++        base::StrCat({"tab ", id, " does not show a web page"})));
++    return;
++  }
++  base::WeakPtr<PageSession> session = sessions->Acquire(tab->contents);
++  if (!session) {
++    std::move(callback).Run(
++        base::unexpected(base::StrCat({"tab ", id, " cannot be inspected"})));
++    return;
++  }
++  Completion* completion =
++      new Completion(sessions->AsWeakPtr(), tab->id, std::move(callback));
++  std::move(step).Run(std::move(session), tab->id, std::move(args),
++                      completion->AsCallback());
++}
++
++std::string ScriptError(const base::DictValue& details) {
++  if (const std::string* description =
++          details.FindStringByDottedPath("exception.description")) {
++    return base::StrCat({"script error: ", *description});
++  }
++  const std::string* text = details.FindString("text");
++  std::string message =
++      base::StrCat({"script error: ", text ? *text : "uncaught exception"});
++  if (const base::Value* value = details.FindByDottedPath("exception.value")) {
++    base::StrAppend(&message, {" ", base::WriteJson(*value).value_or("")});
++  }
++  return message;
++}
++
++void OnEvaluated(ValueCallback callback, PageSession::Result result) {
++  if (!result.has_value()) {
++    std::move(callback).Run(base::unexpected(result.error()));
++    return;
++  }
++  if (const base::DictValue* details = result->FindDict("exceptionDetails")) {
++    std::move(callback).Run(base::unexpected(ScriptError(*details)));
++    return;
++  }
++  base::Value* value = result->FindByDottedPath("result.value");
++  std::move(callback).Run(value ? std::move(*value) : base::Value());
++}
++
++void Evaluate(PageSession* session,
++              std::string_view expression,
++              ValueCallback callback) {
++  session->Send("Runtime.evaluate",
++                base::DictValue()
++                    .Set("expression", expression)
++                    .Set("returnByValue", true)
++                    .Set("awaitPromise", true)
++                    .Set("userGesture", true),
++                base::BindOnce(&OnEvaluated, std::move(callback)));
++}
++
++void ReplyWithString(std::string_view key,
++                     CommandCallback done,
++                     ValueResult value) {
++  if (!value.has_value()) {
++    std::move(done).Run(base::unexpected(value.error()));
++    return;
++  }
++  if (!value->is_string()) {
++    std::move(done).Run(base::unexpected("the page returned no text"));
++    return;
++  }
++  std::move(done).Run(base::DictValue().Set(key, std::move(value.value())));
++}
++
++void ReplyWithValue(CommandCallback done, ValueResult value) {
++  if (!value.has_value()) {
++    std::move(done).Run(base::unexpected(value.error()));
++    return;
++  }
++  std::move(done).Run(base::DictValue().Set("value", std::move(value.value())));
++}
++
++void ReplyWithScreenshot(int tab_id,
++                         CommandCallback done,
++                         PageSession::Result result) {
++  if (!result.has_value()) {
++    std::move(done).Run(base::unexpected(result.error()));
++    return;
++  }
++  std::string* data = result->FindString("data");
++  if (!data) {
++    std::move(done).Run(base::unexpected("the page returned no screenshot"));
++    return;
++  }
++  std::move(done).Run(
++      base::DictValue().Set("id", tab_id).Set("png", std::move(*data)));
++}
++
++void EvaluateFixed(std::string_view script,
++                   std::string_view key,
++                   base::WeakPtr<PageSession> session,
++                   int tab_id,
++                   base::DictValue args,
++                   CommandCallback done) {
++  Evaluate(session.get(), script,
++           base::BindOnce(&ReplyWithString, key, std::move(done)));
++}
++
++void EvaluateRequested(base::WeakPtr<PageSession> session,
++                       int tab_id,
++                       base::DictValue args,
++                       CommandCallback done) {
++  const std::string* expression = args.FindString("expression");
++  if (!expression) {
++    std::move(done).Run(base::unexpected(
++        "invalid request: expression is missing or not a string"));
++    return;
++  }
++  Evaluate(session.get(), *expression,
++           base::BindOnce(&ReplyWithValue, std::move(done)));
++}
++
++void CaptureScreenshot(base::WeakPtr<PageSession> session,
++                       int tab_id,
++                       base::DictValue args,
++                       CommandCallback done) {
++  session->Send("Page.captureScreenshot",
++                base::DictValue().Set("format", "png"),
++                base::BindOnce(&ReplyWithScreenshot, tab_id, std::move(done)));
++}
++
++}  // namespace
++
++void TabText(PageSessions* sessions,
++             base::DictValue args,
++             CommandCallback callback) {
++  RunOnPage(sessions, std::move(args), std::move(callback),
++            base::BindOnce(&EvaluateFixed, kTextScript, "text"));
++}
++
++void TabHtml(PageSessions* sessions,
++             base::DictValue args,
++             CommandCallback callback) {
++  RunOnPage(sessions, std::move(args), std::move(callback),
++            base::BindOnce(&EvaluateFixed, kHtmlScript, "html"));
++}
++
++void TabEval(PageSessions* sessions,
++             base::DictValue args,
++             CommandCallback callback) {
++  RunOnPage(sessions, std::move(args), std::move(callback),
++            base::BindOnce(&EvaluateRequested));
++}
++
++void TabShot(PageSessions* sessions,
++             base::DictValue args,
++             CommandCallback callback) {
++  RunOnPage(sessions, std::move(args), std::move(callback),
++            base::BindOnce(&CaptureScreenshot));
++}
++
++}  // namespace gidora::control
+--- /dev/null
++++ b/chrome/browser/gidora/control/page_commands.h
+@@ -0,0 +1,30 @@
++// Copyright 2026 The Gidora Authors
++// You can use, redistribute, and/or modify this source code under
++// the terms of the GPL-3.0 license that can be found in the LICENSE file.
++
++#ifndef CHROME_BROWSER_GIDORA_CONTROL_PAGE_COMMANDS_H_
++#define CHROME_BROWSER_GIDORA_CONTROL_PAGE_COMMANDS_H_
++
++#include "base/values.h"
++#include "chrome/browser/gidora/control/control_dispatcher.h"
++
++namespace gidora::control {
++
++class PageSessions;
++
++void TabText(PageSessions* sessions,
++             base::DictValue args,
++             CommandCallback callback);
++void TabHtml(PageSessions* sessions,
++             base::DictValue args,
++             CommandCallback callback);
++void TabEval(PageSessions* sessions,
++             base::DictValue args,
++             CommandCallback callback);
++void TabShot(PageSessions* sessions,
++             base::DictValue args,
++             CommandCallback callback);
++
++}  // namespace gidora::control
++
++#endif  // CHROME_BROWSER_GIDORA_CONTROL_PAGE_COMMANDS_H_
+--- /dev/null
++++ b/chrome/browser/gidora/control/page_session.cc
+@@ -0,0 +1,187 @@
++// Copyright 2026 The Gidora Authors
++// You can use, redistribute, and/or modify this source code under
++// the terms of the GPL-3.0 license that can be found in the LICENSE file.
++
++#include "chrome/browser/gidora/control/page_session.h"
++
++#include <optional>
++#include <utility>
++
++#include "base/containers/span.h"
++#include "base/functional/bind.h"
++#include "base/functional/callback_helpers.h"
++#include "base/json/json_reader.h"
++#include "base/json/json_writer.h"
++#include "base/strings/strcat.h"
++#include "base/strings/string_view_util.h"
++#include "base/task/sequenced_task_runner.h"
++#include "chrome/browser/gidora/control/tab_commands.h"
++#include "content/public/browser/devtools_agent_host.h"
++#include "content/public/browser/web_contents.h"
++#include "url/gurl.h"
++
++namespace gidora::control {
++
++namespace {
++
++constexpr char kTabClosed[] = "tab closed";
++
++}  // namespace
++
++PageSession::PageSession(content::WebContents* contents,
++                         base::OnceClosure on_closed)
++    : on_closed_(std::move(on_closed)) {
++  scoped_refptr<content::DevToolsAgentHost> host =
++      content::DevToolsAgentHost::GetOrCreateFor(contents);
++  if (!host->AttachClient(this)) {
++    return;
++  }
++  host_ = std::move(host);
++  Send("Emulation.setFocusEmulationEnabled",
++       base::DictValue().Set("enabled", true), base::DoNothing());
++}
++
++PageSession::~PageSession() {
++  if (host_) {
++    host_->DetachClient(this);
++  }
++  base::flat_map<int, ResultCallback> pending = std::move(pending_);
++  for (auto& [id, callback] : pending) {
++    std::move(callback).Run(base::unexpected(kTabClosed));
++  }
++}
++
++void PageSession::Send(std::string_view method,
++                       base::DictValue params,
++                       ResultCallback callback) {
++  if (!host_) {
++    std::move(callback).Run(base::unexpected(kTabClosed));
++    return;
++  }
++  int id = next_id_++;
++  std::optional<std::string> message =
++      base::WriteJson(base::DictValue()
++                          .Set("id", id)
++                          .Set("method", method)
++                          .Set("params", std::move(params)));
++  if (!message) {
++    std::move(callback).Run(
++        base::unexpected("the command could not be encoded"));
++    return;
++  }
++  pending_.emplace(id, std::move(callback));
++  host_->DispatchProtocolMessage(this, base::as_byte_span(*message));
++}
++
++base::WeakPtr<PageSession> PageSession::AsWeakPtr() {
++  return weak_factory_.GetWeakPtr();
++}
++
++void PageSession::DispatchProtocolMessage(
++    content::DevToolsAgentHost* agent_host,
++    base::span<const uint8_t> message) {
++  std::optional<base::DictValue> reply = base::JSONReader::ReadDict(
++      base::as_string_view(message), base::JSON_PARSE_RFC);
++  if (!reply) {
++    return;
++  }
++  std::optional<int> id = reply->FindInt("id");
++  if (!id) {
++    return;
++  }
++  auto found = pending_.find(*id);
++  if (found == pending_.end()) {
++    return;
++  }
++  ResultCallback callback = std::move(found->second);
++  pending_.erase(found);
++  if (const base::DictValue* error = reply->FindDict("error")) {
++    const std::string* text = error->FindString("message");
++    std::move(callback).Run(base::unexpected(
++        base::StrCat({"devtools: ", text ? *text : "unknown error"})));
++    return;
++  }
++  base::DictValue* result = reply->FindDict("result");
++  std::move(callback).Run(result ? std::move(*result) : base::DictValue());
++}
++
++void PageSession::AgentHostClosed(content::DevToolsAgentHost* agent_host) {
++  host_ = nullptr;
++  if (on_closed_) {
++    std::move(on_closed_).Run();
++  }
++}
++
++bool PageSession::MayAttachToURL(const GURL& url, bool is_webui) {
++  return !is_webui &&
++         (url.is_empty() || url.IsAboutBlank() || url.SchemeIsHTTPOrHTTPS());
++}
++
++PageSessions::PageSessions() = default;
++
++PageSessions::~PageSessions() {
++  weak_factory_.InvalidateWeakPtrs();
++  std::map<int, Entry> entries = std::move(entries_);
++  entries.clear();
++}
++
++void PageSessions::Keep(content::WebContents* contents) {
++  if (Entry* entry = Ensure(contents)) {
++    entry->kept = true;
++  }
++}
++
++base::WeakPtr<PageSession> PageSessions::Acquire(
++    content::WebContents* contents) {
++  Entry* entry = Ensure(contents);
++  if (!entry) {
++    return nullptr;
++  }
++  ++entry->users;
++  return entry->session->AsWeakPtr();
++}
++
++void PageSessions::Release(int tab_id) {
++  auto found = entries_.find(tab_id);
++  if (found == entries_.end()) {
++    return;
++  }
++  Entry& entry = found->second;
++  --entry.users;
++  if (entry.users > 0 || entry.kept) {
++    return;
++  }
++  Drop(tab_id);
++}
++
++base::WeakPtr<PageSessions> PageSessions::AsWeakPtr() {
++  return weak_factory_.GetWeakPtr();
++}
++
++PageSessions::Entry* PageSessions::Ensure(content::WebContents* contents) {
++  int tab_id = TabIdOf(contents);
++  auto found = entries_.find(tab_id);
++  if (found != entries_.end()) {
++    return &found->second;
++  }
++  auto session = std::make_unique<PageSession>(
++      contents,
++      base::BindOnce(&PageSessions::Drop, weak_factory_.GetWeakPtr(), tab_id));
++  if (!session->is_attached()) {
++    return nullptr;
++  }
++  Entry& entry = entries_[tab_id];
++  entry.session = std::move(session);
++  return &entry;
++}
++
++void PageSessions::Drop(int tab_id) {
++  auto node = entries_.extract(tab_id);
++  if (node.empty()) {
++    return;
++  }
++  base::SequencedTaskRunner::GetCurrentDefault()->DeleteSoon(
++      FROM_HERE, std::move(node.mapped().session));
++}
++
++}  // namespace gidora::control
+--- /dev/null
++++ b/chrome/browser/gidora/control/page_session.h
+@@ -0,0 +1,88 @@
++// Copyright 2026 The Gidora Authors
++// You can use, redistribute, and/or modify this source code under
++// the terms of the GPL-3.0 license that can be found in the LICENSE file.
++
++#ifndef CHROME_BROWSER_GIDORA_CONTROL_PAGE_SESSION_H_
++#define CHROME_BROWSER_GIDORA_CONTROL_PAGE_SESSION_H_
++
++#include <map>
++#include <memory>
++#include <string>
++#include <string_view>
++
++#include "base/containers/flat_map.h"
++#include "base/functional/callback.h"
++#include "base/memory/scoped_refptr.h"
++#include "base/memory/weak_ptr.h"
++#include "base/types/expected.h"
++#include "base/values.h"
++#include "content/public/browser/devtools_agent_host_client.h"
++
++namespace content {
++class DevToolsAgentHost;
++class WebContents;
++}  // namespace content
++
++namespace gidora::control {
++
++class PageSession : public content::DevToolsAgentHostClient {
++ public:
++  using Result = base::expected<base::DictValue, std::string>;
++  using ResultCallback = base::OnceCallback<void(Result)>;
++
++  PageSession(content::WebContents* contents, base::OnceClosure on_closed);
++  PageSession(const PageSession&) = delete;
++  PageSession& operator=(const PageSession&) = delete;
++  ~PageSession() override;
++
++  bool is_attached() const { return !!host_; }
++
++  void Send(std::string_view method,
++            base::DictValue params,
++            ResultCallback callback);
++
++  base::WeakPtr<PageSession> AsWeakPtr();
++
++ private:
++  void DispatchProtocolMessage(content::DevToolsAgentHost* agent_host,
++                               base::span<const uint8_t> message) override;
++  void AgentHostClosed(content::DevToolsAgentHost* agent_host) override;
++  bool MayAttachToURL(const GURL& url, bool is_webui) override;
++
++  scoped_refptr<content::DevToolsAgentHost> host_;
++  base::OnceClosure on_closed_;
++  int next_id_ = 1;
++  base::flat_map<int, ResultCallback> pending_;
++  base::WeakPtrFactory<PageSession> weak_factory_{this};
++};
++
++class PageSessions {
++ public:
++  PageSessions();
++  PageSessions(const PageSessions&) = delete;
++  PageSessions& operator=(const PageSessions&) = delete;
++  ~PageSessions();
++
++  void Keep(content::WebContents* contents);
++  base::WeakPtr<PageSession> Acquire(content::WebContents* contents);
++  void Release(int tab_id);
++
++  base::WeakPtr<PageSessions> AsWeakPtr();
++
++ private:
++  struct Entry {
++    std::unique_ptr<PageSession> session;
++    bool kept = false;
++    int users = 0;
++  };
++
++  Entry* Ensure(content::WebContents* contents);
++  void Drop(int tab_id);
++
++  std::map<int, Entry> entries_;
++  base::WeakPtrFactory<PageSessions> weak_factory_{this};
++};
++
++}  // namespace gidora::control
++
++#endif  // CHROME_BROWSER_GIDORA_CONTROL_PAGE_SESSION_H_

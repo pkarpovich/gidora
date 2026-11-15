@@ -241,12 +241,104 @@ def tab_cases(browser, fixture):
     check('refused urls opened no tab', len(tabs(browser)) == 1)
 
 
+PNG_SIGNATURE = b'\x89PNG\r\n\x1a\n'
+FRAME_PROBE = ("Promise.race([new Promise(r => requestAnimationFrame(() => r('fired'))), "
+               "new Promise(r => setTimeout(() => r('no frame'), 2000))])")
+
+
+def page_cases(browser, fixture):
+    first = tabs(browser)[0]['id']
+    agent = text(browser.ctl('tab', 'new', fixture.url + '?agent')).strip()
+    on_agent = ['--tab', agent]
+
+    result = browser.ctl('tab', 'text', *on_agent)
+    check('tab text returns the visible text', result.returncode == 0 and 'Fixture heading' in text(result),
+          text(result) + error(result))
+    result = browser.ctl('tab', 'html', *on_agent)
+    check('tab html returns the markup', result.returncode == 0 and '<h1 id="heading">' in text(result),
+          text(result)[:200] + error(result))
+
+    result = browser.ctl('tab', 'eval', *on_agent, '1+1')
+    check('tab eval prints the value as json', result.returncode == 0 and text(result) == '2\n', text(result))
+    result = browser.ctl('tab', 'eval', *on_agent, 'document.title')
+    check('tab eval quotes a string', text(result) == '"Gidora fixture"\n', text(result))
+    result = browser.ctl('tab', 'eval', *on_agent, '-r', 'document.title')
+    check('tab eval -r prints a string raw', text(result) == 'Gidora fixture\n', text(result))
+    result = browser.ctl('tab', 'eval', *on_agent, '-', stdin=b'({a: [1, 2], b: null})\n')
+    check('tab eval reads the script from stdin', text(result) == '{"a":[1,2],"b":null}\n',
+          text(result) + error(result))
+    result = browser.ctl('tab', 'eval', *on_agent, 'undefined')
+    check('an undefined value prints as null', text(result) == 'null\n', text(result) + error(result))
+    result = browser.ctl('tab', 'eval', *on_agent, 'new Promise(r => setTimeout(() => r(41 + 1), 100))')
+    check('tab eval awaits a promise', text(result) == '42\n', text(result) + error(result))
+
+    result = browser.ctl('tab', 'eval', *on_agent, '-r', FRAME_PROBE)
+    check('animation frames fire in an agent tab that was never active', text(result) == 'fired\n',
+          text(result) + error(result))
+    result = browser.ctl('tab', 'eval', *on_agent, '-r', 'document.visibilityState')
+    check('an agent tab reports itself visible', text(result) == 'visible\n', text(result))
+    result = browser.ctl('tab', 'eval', *on_agent, 'navigator.webdriver')
+    check('navigator.webdriver stays false', text(result) == 'false\n', text(result))
+
+    target = browser.profile / 'shot.png'
+    result = browser.ctl('tab', 'shot', *on_agent, '-o', str(target))
+    check('tab shot writes a png and prints its path',
+          result.returncode == 0 and text(result) == f'{target}\n' and target.exists()
+          and target.read_bytes().startswith(PNG_SIGNATURE) and target.stat().st_size > 1000,
+          text(result) + error(result))
+    result = browser.ctl('tab', 'shot', *on_agent, '-o', '-')
+    check('tab shot -o - writes the png to stdout',
+          result.returncode == 0 and result.stdout.startswith(PNG_SIGNATURE), result.stdout[:20])
+    result = browser.ctl('tab', 'shot', *on_agent)
+    default = Path(text(result).strip())
+    check('tab shot without -o names a file after the tab',
+          result.returncode == 0 and default.name.startswith(f'gidora-shot-{agent}-') and default.exists(),
+          text(result) + error(result))
+    default.unlink(missing_ok=True)
+
+    result = browser.ctl('tab', 'eval', *on_agent, "throw new Error('boom')")
+    check('a throwing script is a script error',
+          result.returncode == 1 and 'script error' in error(result) and 'boom' in error(result), error(result))
+    result = browser.ctl('tab', 'eval', *on_agent, "throw 'plain'")
+    check('a thrown non-error value is reported too',
+          result.returncode == 1 and 'script error' in error(result) and 'plain' in error(result), error(result))
+    reply = browser.reply({'cmd': 'tab.eval', 'args': {'tab': int(agent)}})
+    check('tab.eval without an expression is an invalid request',
+          reply['ok'] is False and reply['error'].startswith('invalid request'), reply)
+
+    result = browser.ctl('tab', 'eval', '-r', 'location.href')
+    check('a command without --tab acts on the active tab', text(result) == fixture.url + '\n',
+          text(result) + error(result))
+    result = browser.ctl('tab', 'text')
+    check('tab text without --tab reads the active tab', 'Fixture heading' in text(result), error(result))
+
+    browser.ctl('tab', 'close', *on_agent)
+    result = browser.ctl('tab', 'text', *on_agent)
+    check('a page command on a closed tab fails',
+          result.returncode == 1 and f'unknown tab: {agent}' in error(result), error(result))
+    listed = tabs(browser)
+    check('the active tab is the same after the page commands',
+          [row['id'] for row in listed if row['active']] == [first], listed)
+
+
+def internal_page_cases():
+    with Browser('chrome://version') as browser:
+        for command in (['tab', 'text'], ['tab', 'html'], ['tab', 'eval', '1'], ['tab', 'shot', '-o', '-']):
+            result = browser.ctl(*command)
+            check(f'{command[1]} refuses a browser-internal page',
+                  result.returncode == 1 and 'does not show a web page' in error(result) and result.stdout == b'',
+                  error(result))
+
+
 def incognito_cases(fixture):
     with Browser(fixture.url, extra=['--incognito']) as browser:
         result = browser.ctl('tab', 'list')
         check('an incognito window is not listed', result.returncode == 0 and text(result) == '', text(result))
         result = browser.ctl('tab', 'close')
         check('an incognito window is not a target',
+              result.returncode == 1 and 'no browser window' in error(result), error(result))
+        result = browser.ctl('tab', 'text')
+        check('a page command has no target in an incognito window',
               result.returncode == 1 and 'no browser window' in error(result), error(result))
         result = browser.ctl('tab', 'new', fixture.url)
         check('tab new does not open into an incognito window',
@@ -263,6 +355,8 @@ def main():
         with Browser(fixture.url) as browser:
             transport_cases(browser)
             tab_cases(browser, fixture)
+            page_cases(browser, fixture)
+        internal_page_cases()
     if failures:
         print(f'\n{len(failures)} failed: ' + '; '.join(failures))
         sys.exit(1)

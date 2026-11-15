@@ -307,15 +307,15 @@ A tab opened by `tab.new` is an agent tab. It gets a DevTools session with focus
 - Modify (inside the patch): `chrome/browser/gidora/control/control_dispatcher.cc`, `tab_commands.cc`, `chrome/browser/BUILD.gn`
 - Modify: `gidoractl/e2e/e2e.py`
 
-- [ ] `PageSession`: the `DevToolsAgentHostClient` from the Page sessions section. Its interface is one call: send a method name with a params dictionary and get back the result dictionary or an error string. It owns the id counter, the pending map and the detach handling
-- [ ] a session registry on the UI thread, keyed by tab id. `tab.new` creates a persistent session for the new tab right after the tab exists, before the load finishes. A page command on a tab without a session creates a temporary one and destroys it when the command has replied. Server stop destroys all sessions
-- [ ] the 30 s command timeout, applied to the whole page command
-- [ ] implement `tab.text`, `tab.html`, `tab.eval` and `tab.shot` from the DevTools message table, including the web-page check and the `script error` mapping
-- [ ] e2e cases on an agent tab opened with `tab new`: `tab text` contains the heading text; `tab html` contains the heading tag; `tab eval "1+1"` prints `2`; `tab eval -r "document.title"` prints the raw title; `echo "document.title" | gidoractl tab eval -` works; an expression that returns a promise is awaited; `tab shot -o <file>` writes a file that starts with the PNG signature; `tab shot -o - | wc -c` is non-zero
-- [ ] e2e case for the reason behind persistent sessions: in an agent tab that was never active, an expression that awaits `requestAnimationFrame` with a 2 s fallback reports that the frame fired, and `document.visibilityState` is `visible`
-- [ ] e2e failure cases: `tab eval "throw new Error('boom')"` exits 1 with `script error` and `boom`; a page command on a tab closed in the meantime gives `unknown tab`
-- [ ] e2e case: commands without `--tab` act on the user's active tab, and after the whole run the active tab id is the one from the start
-- [ ] run `mise run build` and `mise run e2e` - must pass before Task 6
+- [x] `PageSession`: the `DevToolsAgentHostClient` from the Page sessions section. Its interface is one call: send a method name with a params dictionary and get back the result dictionary or an error string. It owns the id counter, the pending map and the detach handling
+- [x] a session registry on the UI thread, keyed by tab id. `tab.new` creates a persistent session for the new tab right after the tab exists, before the load finishes. A page command on a tab without a session creates a temporary one and destroys it when the command has replied. Server stop destroys all sessions
+- [x] the 30 s command timeout, applied to the whole page command
+- [x] implement `tab.text`, `tab.html`, `tab.eval` and `tab.shot` from the DevTools message table, including the web-page check and the `script error` mapping
+- [x] e2e cases on an agent tab opened with `tab new`: `tab text` contains the heading text; `tab html` contains the heading tag; `tab eval "1+1"` prints `2`; `tab eval -r "document.title"` prints the raw title; `echo "document.title" | gidoractl tab eval -` works; an expression that returns a promise is awaited; `tab shot -o <file>` writes a file that starts with the PNG signature; `tab shot -o - | wc -c` is non-zero
+- [x] e2e case for the reason behind persistent sessions: in an agent tab that was never active, an expression that awaits `requestAnimationFrame` with a 2 s fallback reports that the frame fired, and `document.visibilityState` is `visible`
+- [x] e2e failure cases: `tab eval "throw new Error('boom')"` exits 1 with `script error` and `boom`; a page command on a tab closed in the meantime gives `unknown tab`
+- [x] e2e case: commands without `--tab` act on the user's active tab, and after the whole run the active tab id is the one from the start
+- [x] run `mise run build` and `mise run e2e` - must pass before Task 6
 
 ### Task 6: `tab.click` and `tab.type`
 
