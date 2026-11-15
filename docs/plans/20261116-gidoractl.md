@@ -360,10 +360,10 @@ A tab opened by `tab.new` is an agent tab. It gets a DevTools session with focus
 **Files:**
 - Modify: `mise.toml`
 
-- [ ] add the mise task `release-update`: source `devutils/shared.sh` and run `helium_build chrome/installer/mac` with `GOROOT`, `GOBIN` and `GOTOOLDIR` unset, without `prepare_sources` and without `configure_build`. `mise run release` must not be used for an update: it deletes `out/` and rebuilds from scratch (about 4h45m)
-- [ ] add the mise task `sign`: from `build/src`, create a no-op `spctl` script in a directory under `build/`, put that directory first on `PATH`, and run `out/Default/Gidora Packaging/sign_chrome.py --input out/Default --output out/Default/signed --identity "<the Developer ID Application identity found with security find-identity>" --disable-packaging --notarize none`. The shim is needed because `spctl --assess` fails for an app that is not notarized. Then run `codesign --verify --deep --strict` on the signed app
-- [ ] commit: `build: add release update and sign tasks`. Push `gidora`
-- [ ] in the release worktree (`$HOME/Projects/worktrees/gidora/release`, branch `release`): `git merge --ff-only gidora`, then apply the two new patches to its `build/src` with `patch -p1 --forward`. That tree was prepared without quilt, so quilt is not used there
+- [x] add the mise task `release-update`: source `devutils/shared.sh` and run `helium_build chrome/installer/mac` with `GOROOT`, `GOBIN` and `GOTOOLDIR` unset, without `prepare_sources` and without `configure_build`. `mise run release` must not be used for an update: it deletes `out/` and rebuilds from scratch (about 4h45m)
+- [x] add the mise task `sign`: from `build/src`, create a no-op `spctl` script in a directory under `build/`, put that directory first on `PATH`, and run `out/Default/Gidora Packaging/sign_chrome.py --input out/Default --output out/Default/signed --identity "<the Developer ID Application identity found with security find-identity>" --disable-packaging --notarize none`. The shim is needed because `spctl --assess` fails for an app that is not notarized. Then run `codesign --verify --deep --strict` on the signed app
+- [x] commit: `build: add release update and sign tasks`. Push `gidora`
+- [x] in the release worktree (`$HOME/Projects/worktrees/gidora/release`, branch `release`): `git merge --ff-only gidora`, then apply the two new patches to its `build/src` with `patch -p1 --forward`. That tree was prepared without quilt, so quilt is not used there
 - [ ] run `mise run release-update` there and record the duration in this plan. The duration of an incremental official build is not measured yet
 - [ ] run `mise run sign` there and confirm the signature and `Gidora --version`
 - [ ] ⚠️ stop and ask the user before this step: replacing the installed app means quitting his browser. With his go-ahead, quit Gidora gracefully, move `/Applications/Gidora.app` to `build/Gidora.prev.app` in the release worktree, copy the signed app to `/Applications/Gidora.app` with `ditto`, and start it
@@ -386,7 +386,7 @@ A tab opened by `tab.new` is an agent tab. It gets a DevTools session with focus
 - Create: `gidoractl/README.md`
 - Modify: `docs/plans/20261116-gidoractl.md`
 
-- [ ] write `gidoractl/README.md`: what the tool is, how to turn the socket on, the command table with one example each, the pipe rules, the exit codes, the `--json` envelope, `GIDORA_SOCKET`, and how to run `mise run e2e`. The upstream `README.md` stays untouched to keep merges from upstream clean
+- [x] write `gidoractl/README.md`: what the tool is, how to turn the socket on, the command table with one example each, the pipe rules, the exit codes, the `--json` envelope, `GIDORA_SOCKET`, and how to run `mise run e2e`. The upstream `README.md` stays untouched to keep merges from upstream clean
 - [ ] move this plan to `docs/plans/completed/`
 - [ ] commit: `docs: describe gidoractl`. Push `gidora`
 
