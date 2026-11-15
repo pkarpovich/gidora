@@ -323,11 +323,11 @@ A tab opened by `tab.new` is an agent tab. It gets a DevTools session with focus
 - Modify (inside the patch): `chrome/browser/gidora/control/page_commands.cc`, `control_dispatcher.cc`
 - Modify: `gidoractl/e2e/e2e.py`
 
-- [ ] implement `tab.click` in both forms from the DevTools message table. The result carries the coordinates that were clicked
-- [ ] implement `tab.type`
-- [ ] e2e cases on an agent tab: clicking the first button by selector changes the title; clicking the below-the-fold button by selector works (scroll into view); `tab click --at` with the coordinates returned for the first button works; clicking the input and `tab type hello` gives the input the value `hello`; `echo -n world | gidoractl tab type -` appends
-- [ ] e2e failure case: `tab click "#missing"` exits 1 with `selector not found: #missing`
-- [ ] run `mise run build` and `mise run e2e` - must pass before Task 7
+- [x] implement `tab.click` in both forms from the DevTools message table. The result carries the coordinates that were clicked
+- [x] implement `tab.type`
+- [x] e2e cases on an agent tab: clicking the first button by selector changes the title; clicking the below-the-fold button by selector works (scroll into view); `tab click --at` with the coordinates returned for the first button works; clicking the input and `tab type hello` gives the input the value `hello`; `echo -n world | gidoractl tab type -` appends
+- [x] e2e failure case: `tab click "#missing"` exits 1 with `selector not found: #missing`
+- [x] run `mise run build` and `mise run e2e` - must pass before Task 7
 
 ### Task 7: Settings toggle, then commit the control socket
 

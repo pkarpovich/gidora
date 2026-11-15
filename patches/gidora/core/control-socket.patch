@@ -50,7 +50,7 @@
    }
 --- /dev/null
 +++ b/chrome/browser/gidora/control/control_dispatcher.cc
-@@ -0,0 +1,107 @@
+@@ -0,0 +1,109 @@
 +// Copyright 2026 The Gidora Authors
 +// You can use, redistribute, and/or modify this source code under
 +// the terms of the GPL-3.0 license that can be found in the LICENSE file.
@@ -118,6 +118,8 @@
 +  handlers_.emplace("tab.html", base::BindRepeating(&TabHtml, sessions));
 +  handlers_.emplace("tab.eval", base::BindRepeating(&TabEval, sessions));
 +  handlers_.emplace("tab.shot", base::BindRepeating(&TabShot, sessions));
++  handlers_.emplace("tab.click", base::BindRepeating(&TabClick, sessions));
++  handlers_.emplace("tab.type", base::BindRepeating(&TabType, sessions));
 +}
 +
 +ControlDispatcher::~ControlDispatcher() = default;
@@ -981,13 +983,14 @@
 +#endif  // CHROME_BROWSER_GIDORA_CONTROL_TAB_COMMANDS_H_
 --- /dev/null
 +++ b/chrome/browser/gidora/control/page_commands.cc
-@@ -0,0 +1,244 @@
+@@ -0,0 +1,367 @@
 +// Copyright 2026 The Gidora Authors
 +// You can use, redistribute, and/or modify this source code under
 +// the terms of the GPL-3.0 license that can be found in the LICENSE file.
 +
 +#include "chrome/browser/gidora/control/page_commands.h"
 +
++#include <array>
 +#include <optional>
 +#include <string>
 +#include <string_view>
@@ -995,6 +998,7 @@
 +
 +#include "base/functional/bind.h"
 +#include "base/json/json_writer.h"
++#include "base/json/string_escape.h"
 +#include "base/memory/weak_ptr.h"
 +#include "base/strings/strcat.h"
 +#include "base/strings/string_number_conversions.h"
@@ -1015,6 +1019,18 @@
 +constexpr char kTextScript[] =
 +    R"(document.body ? document.body.innerText : "")";
 +constexpr char kHtmlScript[] = "document.documentElement.outerHTML";
++constexpr char kLocateScript[] = R"((selector => {
++  const element = document.querySelector(selector);
++  if (!element) {
++    return null;
++  }
++  element.scrollIntoView(
++      {block: "center", inline: "center", behavior: "instant"});
++  const box = element.getBoundingClientRect();
++  return {x: box.left + box.width / 2, y: box.top + box.height / 2};
++}))";
++constexpr auto kClickEvents = std::to_array<std::string_view>(
++    {"mouseMoved", "mousePressed", "mouseReleased"});
 +
 +using ValueResult = base::expected<base::Value, std::string>;
 +using ValueCallback = base::OnceCallback<void(ValueResult)>;
@@ -1195,6 +1211,101 @@
 +                base::BindOnce(&ReplyWithScreenshot, tab_id, std::move(done)));
 +}
 +
++void ClickStep(base::WeakPtr<PageSession> session,
++               size_t index,
++               double x,
++               double y,
++               CommandCallback done,
++               PageSession::Result previous) {
++  if (!previous.has_value()) {
++    std::move(done).Run(base::unexpected(previous.error()));
++    return;
++  }
++  if (index == kClickEvents.size()) {
++    std::move(done).Run(base::DictValue().Set("x", x).Set("y", y));
++    return;
++  }
++  if (!session) {
++    std::move(done).Run(base::unexpected("tab closed"));
++    return;
++  }
++  bool is_move = index == 0;
++  session->Send(
++      "Input.dispatchMouseEvent",
++      base::DictValue()
++          .Set("type", kClickEvents[index])
++          .Set("x", x)
++          .Set("y", y)
++          .Set("button", is_move ? "none" : "left")
++          .Set("clickCount", is_move ? 0 : 1),
++      base::BindOnce(&ClickStep, session, index + 1, x, y, std::move(done)));
++}
++
++void ClickLocated(base::WeakPtr<PageSession> session,
++                  std::string selector,
++                  CommandCallback done,
++                  ValueResult located) {
++  if (!located.has_value()) {
++    std::move(done).Run(base::unexpected(located.error()));
++    return;
++  }
++  const base::DictValue* point = located->GetIfDict();
++  std::optional<double> x = point ? point->FindDouble("x") : std::nullopt;
++  std::optional<double> y = point ? point->FindDouble("y") : std::nullopt;
++  if (!x || !y) {
++    std::move(done).Run(
++        base::unexpected(base::StrCat({"selector not found: ", selector})));
++    return;
++  }
++  ClickStep(std::move(session), 0, *x, *y, std::move(done), base::DictValue());
++}
++
++void Click(base::WeakPtr<PageSession> session,
++           int tab_id,
++           base::DictValue args,
++           CommandCallback done) {
++  const std::string* selector = args.FindString("selector");
++  std::optional<double> x = args.FindDouble("x");
++  std::optional<double> y = args.FindDouble("y");
++  if (selector && !x && !y) {
++    Evaluate(
++        session.get(),
++        base::StrCat(
++            {kLocateScript, "(", base::GetQuotedJSONString(*selector), ")"}),
++        base::BindOnce(&ClickLocated, session, *selector, std::move(done)));
++    return;
++  }
++  if (!selector && x && y) {
++    ClickStep(std::move(session), 0, *x, *y, std::move(done),
++              base::DictValue());
++    return;
++  }
++  std::move(done).Run(base::unexpected(
++      "invalid request: give either selector or both x and y"));
++}
++
++void ReplyEmpty(CommandCallback done, PageSession::Result result) {
++  if (!result.has_value()) {
++    std::move(done).Run(base::unexpected(result.error()));
++    return;
++  }
++  std::move(done).Run(base::DictValue());
++}
++
++void InsertText(base::WeakPtr<PageSession> session,
++                int tab_id,
++                base::DictValue args,
++                CommandCallback done) {
++  const std::string* text = args.FindString("text");
++  if (!text) {
++    std::move(done).Run(
++        base::unexpected("invalid request: text is missing or not a string"));
++    return;
++  }
++  session->Send("Input.insertText", base::DictValue().Set("text", *text),
++                base::BindOnce(&ReplyEmpty, std::move(done)));
++}
++
 +}  // namespace
 +
 +void TabText(PageSessions* sessions,
@@ -1225,10 +1336,24 @@
 +            base::BindOnce(&CaptureScreenshot));
 +}
 +
++void TabClick(PageSessions* sessions,
++              base::DictValue args,
++              CommandCallback callback) {
++  RunOnPage(sessions, std::move(args), std::move(callback),
++            base::BindOnce(&Click));
++}
++
++void TabType(PageSessions* sessions,
++             base::DictValue args,
++             CommandCallback callback) {
++  RunOnPage(sessions, std::move(args), std::move(callback),
++            base::BindOnce(&InsertText));
++}
++
 +}  // namespace gidora::control
 --- /dev/null
 +++ b/chrome/browser/gidora/control/page_commands.h
-@@ -0,0 +1,30 @@
+@@ -0,0 +1,36 @@
 +// Copyright 2026 The Gidora Authors
 +// You can use, redistribute, and/or modify this source code under
 +// the terms of the GPL-3.0 license that can be found in the LICENSE file.
@@ -1253,6 +1378,12 @@
 +             base::DictValue args,
 +             CommandCallback callback);
 +void TabShot(PageSessions* sessions,
++             base::DictValue args,
++             CommandCallback callback);
++void TabClick(PageSessions* sessions,
++              base::DictValue args,
++              CommandCallback callback);
++void TabType(PageSessions* sessions,
 +             base::DictValue args,
 +             CommandCallback callback);
 +

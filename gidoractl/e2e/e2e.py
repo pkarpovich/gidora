@@ -321,9 +321,61 @@ def page_cases(browser, fixture):
           [row['id'] for row in listed if row['active']] == [first], listed)
 
 
+def input_cases(browser, fixture):
+    agent = text(browser.ctl('tab', 'new', fixture.url + '?input')).strip()
+    on_agent = ['--tab', agent]
+
+    def title():
+        return text(browser.ctl('tab', 'eval', *on_agent, '-r', 'document.title')).strip()
+
+    result = browser.ctl('tab', 'click', *on_agent, '#near')
+    check('tab click by selector presses the button',
+          result.returncode == 0 and text(result) == '' and title() == 'near clicked', error(result) + title())
+    result = browser.ctl('tab', 'click', *on_agent, '#far')
+    check('tab click scrolls an element below the fold into view',
+          result.returncode == 0 and title() == 'far clicked', error(result) + title())
+
+    browser.ctl('tab', 'eval', *on_agent, "scrollTo(0, 0); document.title = 'reset'")
+    reply = browser.reply({'cmd': 'tab.click', 'args': {'tab': int(agent), 'selector': '#near'}})
+    check('tab.click answers with the point it clicked',
+          reply['ok'] and reply['result']['x'] > 0 and reply['result']['y'] > 0, reply)
+    browser.ctl('tab', 'eval', *on_agent, "document.title = 'reset'")
+    point = f"{reply['result']['x']},{reply['result']['y']}"
+    result = browser.ctl('tab', 'click', *on_agent, '--at', point)
+    check('tab click --at presses the same point', result.returncode == 0 and title() == 'near clicked',
+          error(result) + title())
+
+    browser.ctl('tab', 'click', *on_agent, '#field')
+    result = browser.ctl('tab', 'type', *on_agent, 'hello')
+    value = text(browser.ctl('tab', 'eval', *on_agent, '-r', 'document.getElementById("field").value'))
+    check('tab type inserts text into the focused field',
+          result.returncode == 0 and text(result) == '' and value == 'hello\n', error(result) + value)
+    result = browser.ctl('tab', 'type', *on_agent, '-', stdin=b' world')
+    value = text(browser.ctl('tab', 'eval', *on_agent, '-r', 'document.getElementById("field").value'))
+    check('tab type reads the text from stdin', result.returncode == 0 and value == 'hello world\n',
+          error(result) + value)
+
+    result = browser.ctl('tab', 'click', *on_agent, '#missing')
+    check('a selector without a match is named in the error',
+          result.returncode == 1 and 'selector not found: #missing' in error(result), error(result))
+    result = browser.ctl('tab', 'click', *on_agent, '##')
+    check('an invalid selector is a script error', result.returncode == 1 and 'script error' in error(result),
+          error(result))
+    for arguments in ({}, {'selector': '#near', 'x': 1, 'y': 2}, {'x': 1}):
+        reply = browser.reply({'cmd': 'tab.click', 'args': {'tab': int(agent), **arguments}})
+        check(f'tab.click with {sorted(arguments)} is an invalid request',
+              reply['ok'] is False and reply['error'].startswith('invalid request'), reply)
+    reply = browser.reply({'cmd': 'tab.type', 'args': {'tab': int(agent)}})
+    check('tab.type without text is an invalid request',
+          reply['ok'] is False and reply['error'].startswith('invalid request'), reply)
+    browser.ctl('tab', 'close', *on_agent)
+
+
 def internal_page_cases():
     with Browser('chrome://version') as browser:
-        for command in (['tab', 'text'], ['tab', 'html'], ['tab', 'eval', '1'], ['tab', 'shot', '-o', '-']):
+        commands = (['tab', 'text'], ['tab', 'html'], ['tab', 'eval', '1'], ['tab', 'shot', '-o', '-'],
+                    ['tab', 'click', 'body'], ['tab', 'type', 'x'])
+        for command in commands:
             result = browser.ctl(*command)
             check(f'{command[1]} refuses a browser-internal page',
                   result.returncode == 1 and 'does not show a web page' in error(result) and result.stdout == b'',
@@ -356,6 +408,9 @@ def main():
             transport_cases(browser)
             tab_cases(browser, fixture)
             page_cases(browser, fixture)
+            input_cases(browser, fixture)
+            check('one tab is left and it is active',
+                  len(tabs(browser)) == 1 and tabs(browser)[0]['active'], tabs(browser))
         internal_page_cases()
     if failures:
         print(f'\n{len(failures)} failed: ' + '; '.join(failures))
