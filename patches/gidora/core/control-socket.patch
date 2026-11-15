@@ -1,6 +1,6 @@
 --- a/chrome/browser/BUILD.gn
 +++ b/chrome/browser/BUILD.gn
-@@ -1039,6 +1039,12 @@ source_set("core") {
+@@ -1039,6 +1039,14 @@ source_set("core") {
      "file_select_helper.cc",
      "font_family_cache.cc",
      "font_family_cache.h",
@@ -10,6 +10,8 @@
 +    "gidora/control/control_prefs.h",
 +    "gidora/control/control_server.cc",
 +    "gidora/control/control_server.h",
++    "gidora/control/tab_commands.cc",
++    "gidora/control/tab_commands.h",
      "global_features.cc",
      "helium_noise/helium_noise_settings.cc",
      "helium_noise/helium_noise_settings.h",
@@ -44,7 +46,7 @@
    }
 --- /dev/null
 +++ b/chrome/browser/gidora/control/control_dispatcher.cc
-@@ -0,0 +1,94 @@
+@@ -0,0 +1,99 @@
 +// Copyright 2026 The Gidora Authors
 +// You can use, redistribute, and/or modify this source code under
 +// the terms of the GPL-3.0 license that can be found in the LICENSE file.
@@ -59,6 +61,7 @@
 +#include "base/json/json_writer.h"
 +#include "base/strings/strcat.h"
 +#include "base/version_info/version_info.h"
++#include "chrome/browser/gidora/control/tab_commands.h"
 +#include "content/public/browser/browser_thread.h"
 +
 +namespace gidora::control {
@@ -99,6 +102,10 @@
 +
 +ControlDispatcher::ControlDispatcher() {
 +  handlers_.emplace("version", base::BindRepeating(&Version));
++  handlers_.emplace("tab.list", base::BindRepeating(&TabList));
++  handlers_.emplace("tab.new", base::BindRepeating(&TabNew));
++  handlers_.emplace("tab.go", base::BindRepeating(&TabGo));
++  handlers_.emplace("tab.close", base::BindRepeating(&TabClose));
 +}
 +
 +ControlDispatcher::~ControlDispatcher() = default;
@@ -639,3 +646,310 @@
  #if BUILDFLAG(IS_ANDROID)
    PushMessagingServiceImpl::RegisterPrefs(registry);
  #endif
+--- /dev/null
++++ b/chrome/browser/gidora/control/tab_commands.cc
+@@ -0,0 +1,262 @@
++// Copyright 2026 The Gidora Authors
++// You can use, redistribute, and/or modify this source code under
++// the terms of the GPL-3.0 license that can be found in the LICENSE file.
++
++#include "chrome/browser/gidora/control/tab_commands.h"
++
++#include <optional>
++#include <utility>
++
++#include "base/functional/bind.h"
++#include "base/strings/strcat.h"
++#include "base/strings/string_number_conversions.h"
++#include "base/strings/utf_string_conversions.h"
++#include "base/time/time.h"
++#include "base/timer/timer.h"
++#include "chrome/browser/profiles/profile.h"
++#include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
++#include "chrome/browser/ui/browser_window/public/browser_window_interface_iterator.h"
++#include "chrome/browser/ui/navigator/browser_navigator.h"
++#include "chrome/browser/ui/navigator/browser_navigator_params.h"
++#include "chrome/browser/ui/tabs/tab_strip_model.h"
++#include "components/sessions/content/session_tab_helper.h"
++#include "content/public/browser/navigation_controller.h"
++#include "content/public/browser/web_contents.h"
++#include "content/public/browser/web_contents_observer.h"
++#include "ui/base/page_transition_types.h"
++#include "ui/base/window_open_disposition.h"
++#include "url/gurl.h"
++
++namespace gidora::control {
++
++namespace {
++
++constexpr base::TimeDelta kTabTimeout = base::Seconds(30);
++constexpr char kTimedOut[] = "timed out after 30 s";
++
++bool IsEligible(BrowserWindowInterface* window) {
++  return window->GetType() == BrowserWindowInterface::TYPE_NORMAL &&
++         !window->GetProfile()->IsOffTheRecord();
++}
++
++int IdOf(content::WebContents* contents) {
++  return sessions::SessionTabHelper::IdForTab(contents).id();
++}
++
++BrowserWindowInterface* LastActiveEligibleWindow() {
++  BrowserWindowInterface* found = nullptr;
++  ForEachCurrentBrowserWindowInterfaceOrderedByActivation(
++      [&found](BrowserWindowInterface* window) {
++        if (!IsEligible(window)) {
++          return true;
++        }
++        found = window;
++        return false;
++      });
++  return found;
++}
++
++ui::PageTransition ApiTransition() {
++  return ui::PageTransitionFromInt(ui::PAGE_TRANSITION_LINK |
++                                   ui::PAGE_TRANSITION_FROM_API);
++}
++
++base::expected<GURL, std::string> WebUrl(const base::DictValue& args) {
++  const std::string* spec = args.FindString("url");
++  if (!spec) {
++    return base::unexpected("invalid request: url is missing or not a string");
++  }
++  GURL url(*spec);
++  if (!url.is_valid() || !url.SchemeIsHTTPOrHTTPS()) {
++    return base::unexpected("unsupported URL: only http and https are allowed");
++  }
++  return url;
++}
++
++class LoadWaiter : public content::WebContentsObserver {
++ public:
++  static void Start(content::WebContents* contents, CommandCallback callback) {
++    LoadWaiter* waiter = new LoadWaiter(contents, std::move(callback));
++    if (!contents->IsLoading()) {
++      waiter->Finish(false);
++    }
++  }
++
++ private:
++  LoadWaiter(content::WebContents* contents, CommandCallback callback)
++      : content::WebContentsObserver(contents), callback_(std::move(callback)) {
++    timer_.Start(
++        FROM_HERE, kTabTimeout,
++        base::BindOnce(&LoadWaiter::Finish, base::Unretained(this), true));
++  }
++
++  void DidStopLoading() override { Finish(false); }
++
++  void WebContentsDestroyed() override {
++    std::move(callback_).Run(base::unexpected("tab closed"));
++    delete this;
++  }
++
++  void Finish(bool loading) {
++    std::move(callback_).Run(
++        base::DictValue()
++            .Set("id", IdOf(web_contents()))
++            .Set("url", web_contents()->GetLastCommittedURL().spec())
++            .Set("loading", loading));
++    delete this;
++  }
++
++  CommandCallback callback_;
++  base::OneShotTimer timer_;
++};
++
++class CloseWaiter : public content::WebContentsObserver {
++ public:
++  static void Start(content::WebContents* contents, CommandCallback callback) {
++    new CloseWaiter(contents, std::move(callback));
++  }
++
++ private:
++  CloseWaiter(content::WebContents* contents, CommandCallback callback)
++      : content::WebContentsObserver(contents),
++        id_(IdOf(contents)),
++        callback_(std::move(callback)) {
++    timer_.Start(
++        FROM_HERE, kTabTimeout,
++        base::BindOnce(&CloseWaiter::OnTimeout, base::Unretained(this)));
++  }
++
++  void WebContentsDestroyed() override {
++    std::move(callback_).Run(base::DictValue().Set("id", id_));
++    delete this;
++  }
++
++  void OnTimeout() {
++    std::move(callback_).Run(base::unexpected(kTimedOut));
++    delete this;
++  }
++
++  const int id_;
++  CommandCallback callback_;
++  base::OneShotTimer timer_;
++};
++
++}  // namespace
++
++base::expected<ResolvedTab, std::string> ResolveTab(
++    const base::DictValue& args) {
++  const base::Value* tab = args.Find("tab");
++  if (!tab) {
++    BrowserWindowInterface* window = LastActiveEligibleWindow();
++    if (!window) {
++      return base::unexpected("no browser window");
++    }
++    content::WebContents* contents =
++        window->GetTabStripModel()->GetActiveWebContents();
++    if (!contents) {
++      return base::unexpected("no active tab");
++    }
++    return ResolvedTab{IdOf(contents), contents, window};
++  }
++  if (!tab->is_int()) {
++    return base::unexpected("invalid request: tab is not an integer");
++  }
++  int id = tab->GetInt();
++  std::optional<ResolvedTab> found;
++  ForEachCurrentBrowserWindowInterfaceOrderedByActivation(
++      [id, &found](BrowserWindowInterface* window) {
++        if (!IsEligible(window)) {
++          return true;
++        }
++        TabStripModel* tabs = window->GetTabStripModel();
++        for (int index = 0; index < tabs->count(); ++index) {
++          content::WebContents* contents = tabs->GetWebContentsAt(index);
++          if (IdOf(contents) == id) {
++            found = ResolvedTab{id, contents, window};
++            return false;
++          }
++        }
++        return true;
++      });
++  if (!found) {
++    return base::unexpected(
++        base::StrCat({"unknown tab: ", base::NumberToString(id)}));
++  }
++  return *found;
++}
++
++void TabList(base::DictValue args, CommandCallback callback) {
++  base::ListValue list;
++  ForEachCurrentBrowserWindowInterfaceOrderedByActivation(
++      [&list](BrowserWindowInterface* window) {
++        if (!IsEligible(window)) {
++          return true;
++        }
++        TabStripModel* tabs = window->GetTabStripModel();
++        for (int index = 0; index < tabs->count(); ++index) {
++          content::WebContents* contents = tabs->GetWebContentsAt(index);
++          list.Append(
++              base::DictValue()
++                  .Set("id", IdOf(contents))
++                  .Set("window", window->GetSessionID().id())
++                  .Set("active", index == tabs->active_index())
++                  .Set("loading", contents->IsLoading())
++                  .Set("url", contents->GetLastCommittedURL().spec())
++                  .Set("title", base::UTF16ToUTF8(contents->GetTitle())));
++        }
++        return true;
++      });
++  std::move(callback).Run(base::DictValue().Set("tabs", std::move(list)));
++}
++
++void TabNew(base::DictValue args, CommandCallback callback) {
++  base::expected<GURL, std::string> url = WebUrl(args);
++  if (!url.has_value()) {
++    std::move(callback).Run(base::unexpected(url.error()));
++    return;
++  }
++  BrowserWindowInterface* window = LastActiveEligibleWindow();
++  if (!window) {
++    std::move(callback).Run(base::unexpected("no browser window"));
++    return;
++  }
++  NavigateParams params(window, url.value(), ApiTransition());
++  params.disposition = WindowOpenDisposition::NEW_BACKGROUND_TAB;
++  Navigate(&params);
++  content::WebContents* contents = params.navigated_or_inserted_contents;
++  if (!contents) {
++    std::move(callback).Run(base::unexpected("the tab could not be opened"));
++    return;
++  }
++  LoadWaiter::Start(contents, std::move(callback));
++}
++
++void TabGo(base::DictValue args, CommandCallback callback) {
++  base::expected<GURL, std::string> url = WebUrl(args);
++  if (!url.has_value()) {
++    std::move(callback).Run(base::unexpected(url.error()));
++    return;
++  }
++  base::expected<ResolvedTab, std::string> tab = ResolveTab(args);
++  if (!tab.has_value()) {
++    std::move(callback).Run(base::unexpected(tab.error()));
++    return;
++  }
++  content::NavigationController::LoadURLParams load(url.value());
++  load.transition_type = ApiTransition();
++  tab->contents->GetController().LoadURLWithParams(load);
++  LoadWaiter::Start(tab->contents, std::move(callback));
++}
++
++void TabClose(base::DictValue args, CommandCallback callback) {
++  base::expected<ResolvedTab, std::string> tab = ResolveTab(args);
++  if (!tab.has_value()) {
++    std::move(callback).Run(base::unexpected(tab.error()));
++    return;
++  }
++  content::WebContents* contents = tab->contents;
++  CloseWaiter::Start(contents, std::move(callback));
++  contents->Close();
++}
++
++}  // namespace gidora::control
+--- /dev/null
++++ b/chrome/browser/gidora/control/tab_commands.h
+@@ -0,0 +1,39 @@
++// Copyright 2026 The Gidora Authors
++// You can use, redistribute, and/or modify this source code under
++// the terms of the GPL-3.0 license that can be found in the LICENSE file.
++
++#ifndef CHROME_BROWSER_GIDORA_CONTROL_TAB_COMMANDS_H_
++#define CHROME_BROWSER_GIDORA_CONTROL_TAB_COMMANDS_H_
++
++#include <string>
++
++#include "base/memory/raw_ptr.h"
++#include "base/types/expected.h"
++#include "base/values.h"
++#include "chrome/browser/gidora/control/control_dispatcher.h"
++
++class BrowserWindowInterface;
++
++namespace content {
++class WebContents;
++}
++
++namespace gidora::control {
++
++struct ResolvedTab {
++  int id;
++  raw_ptr<content::WebContents> contents;
++  raw_ptr<BrowserWindowInterface> window;
++};
++
++base::expected<ResolvedTab, std::string> ResolveTab(
++    const base::DictValue& args);
++
++void TabList(base::DictValue args, CommandCallback callback);
++void TabNew(base::DictValue args, CommandCallback callback);
++void TabGo(base::DictValue args, CommandCallback callback);
++void TabClose(base::DictValue args, CommandCallback callback);
++
++}  // namespace gidora::control
++
++#endif  // CHROME_BROWSER_GIDORA_CONTROL_TAB_COMMANDS_H_

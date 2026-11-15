@@ -174,14 +174,95 @@ def transport_cases(browser):
           silent == b'' and 4 <= waited <= 9, f'{waited:.1f}s {silent!r}')
 
 
+def tabs(browser):
+    result = browser.ctl('tab', 'list')
+    rows = []
+    for line in text(result).splitlines():
+        identifier, window, active, url, title = line.split('\t')
+        rows.append({'id': identifier, 'window': window, 'active': active == '*', 'url': url, 'title': title})
+    return rows
+
+
+def frontmost():
+    return subprocess.run(['lsappinfo', 'front'], capture_output=True, text=True).stdout.strip()
+
+
+def tab_cases(browser, fixture):
+    listed = tabs(browser)
+    check('tab list shows the fixture tab as the active one',
+          len(listed) == 1 and listed[0]['active'] and listed[0]['url'] == fixture.url
+          and listed[0]['title'] == 'Gidora fixture', listed)
+    first = listed[0]['id']
+
+    front = frontmost()
+    result = browser.ctl('tab', 'new', fixture.url + '?n=1')
+    opened = text(result).strip()
+    check('tab new prints the id of the new tab', result.returncode == 0 and opened.isdigit(),
+          text(result) + error(result))
+    listed = tabs(browser)
+    by_id = {row['id']: row for row in listed}
+    check('the new tab is listed with its url', opened in by_id and by_id[opened]['url'] == fixture.url + '?n=1',
+          listed)
+    check('the new tab did not take the active state',
+          by_id.get(first, {}).get('active') is True and by_id.get(opened, {}).get('active') is False, listed)
+    check('tab new did not change the frontmost application', frontmost() == front, f'{front} -> {frontmost()}')
+
+    reply = browser.reply({'cmd': 'tab.new', 'args': {'url': fixture.url + '?n=json'}})
+    check('tab.new replies after the load with id, url and loading',
+          reply['ok'] and reply['result']['loading'] is False
+          and reply['result']['url'] == fixture.url + '?n=json' and isinstance(reply['result']['id'], int), reply)
+    second = str(reply['result']['id'])
+
+    result = browser.ctl('tab', 'go', '--tab', opened, fixture.url + '?n=2')
+    check('tab go prints the committed url',
+          result.returncode == 0 and text(result) == fixture.url + '?n=2\n', text(result) + error(result))
+
+    for identifier in (opened, second):
+        result = browser.ctl('tab', 'close', '--tab', identifier)
+        check(f'tab close succeeds quietly for tab {identifier}',
+              result.returncode == 0 and text(result) == '', text(result) + error(result))
+    listed = tabs(browser)
+    check('closed tabs leave the list and the first tab stays active',
+          [row['id'] for row in listed] == [first] and listed[0]['active'], listed)
+
+    for arguments in (['tab', 'go', '--tab', '999999', fixture.url], ['tab', 'close', '--tab', '999999']):
+        result = browser.ctl(*arguments)
+        check(f'{arguments[1]} on an unknown tab id fails',
+              result.returncode == 1 and 'unknown tab: 999999' in error(result), error(result))
+
+    for url in ('chrome://settings', 'file:///etc/hosts', 'javascript:alert(1)', 'not a url'):
+        result = browser.ctl('tab', 'new', url)
+        check(f'tab new refuses {url}',
+              result.returncode == 1 and 'unsupported URL: only http and https are allowed' in error(result),
+              error(result))
+    result = browser.ctl('tab', 'go', 'chrome://version')
+    check('tab go refuses an internal url',
+          result.returncode == 1 and 'unsupported URL' in error(result), error(result))
+    check('refused urls opened no tab', len(tabs(browser)) == 1)
+
+
+def incognito_cases(fixture):
+    with Browser(fixture.url, extra=['--incognito']) as browser:
+        result = browser.ctl('tab', 'list')
+        check('an incognito window is not listed', result.returncode == 0 and text(result) == '', text(result))
+        result = browser.ctl('tab', 'close')
+        check('an incognito window is not a target',
+              result.returncode == 1 and 'no browser window' in error(result), error(result))
+        result = browser.ctl('tab', 'new', fixture.url)
+        check('tab new does not open into an incognito window',
+              result.returncode == 1 and 'no browser window' in error(result), error(result))
+
+
 def main():
     for path in (BROWSER, CTL):
         if not path.exists():
             raise SystemExit(f'{path} is missing, build it first')
     with Fixture() as fixture:
         disabled_cases(fixture)
+        incognito_cases(fixture)
         with Browser(fixture.url) as browser:
             transport_cases(browser)
+            tab_cases(browser, fixture)
     if failures:
         print(f'\n{len(failures)} failed: ' + '; '.join(failures))
         sys.exit(1)

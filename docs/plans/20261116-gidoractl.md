@@ -289,16 +289,16 @@ A tab opened by `tab.new` is an agent tab. It gets a DevTools session with focus
 - Modify (inside the patch): `chrome/browser/gidora/control/control_dispatcher.cc`, `chrome/browser/BUILD.gn`
 - Modify: `gidoractl/e2e/e2e.py`
 
-- [ ] implement one tab lookup used by every handler: iterate eligible windows in activation order as the Tabs and targets section defines, and resolve either an id or the active tab. It returns the error strings from that section
-- [ ] implement `tab.list` with the result shape from the wire table
-- [ ] implement the URL check and `tab.new`. Confirm in the running dev build that the new tab does not become active and the window does not come to the front
-- [ ] implement `tab.go` on the resolved tab through its `NavigationController`
-- [ ] implement the load wait shared by `tab.new` and `tab.go`: a `WebContentsObserver` that replies on `DidStopLoading`, on tab destruction (`tab closed`), or after 30 s
-- [ ] implement `tab.close`
-- [ ] e2e cases: `tab list` shows the fixture tab as active; `tab new` prints an id, the new tab is in `tab list` with the fixture URL, and the active tab is still the first one; `tab go --tab <id>` prints the committed URL; `tab close --tab <id>` removes it from the list
-- [ ] e2e failure cases: `--tab 999999` gives `unknown tab: 999999`; `tab new` with a `chrome://` URL and with a `file://` URL gives the unsupported URL error
-- [ ] e2e case: a browser started with `--incognito` and the pref on gives an empty `tab list` and `no browser window` for `tab text`
-- [ ] run `mise run build` and `mise run e2e` - must pass before Task 5
+- [x] implement one tab lookup used by every handler: iterate eligible windows in activation order as the Tabs and targets section defines, and resolve either an id or the active tab. It returns the error strings from that section
+- [x] implement `tab.list` with the result shape from the wire table
+- [x] implement the URL check and `tab.new`. Confirm in the running dev build that the new tab does not become active and the window does not come to the front
+- [x] implement `tab.go` on the resolved tab through its `NavigationController`
+- [x] implement the load wait shared by `tab.new` and `tab.go`: a `WebContentsObserver` that replies on `DidStopLoading`, on tab destruction (`tab closed`), or after 30 s
+- [x] implement `tab.close`
+- [x] e2e cases: `tab list` shows the fixture tab as active; `tab new` prints an id, the new tab is in `tab list` with the fixture URL, and the active tab is still the first one; `tab go --tab <id>` prints the committed URL; `tab close --tab <id>` removes it from the list
+- [x] e2e failure cases: `--tab 999999` gives `unknown tab: 999999`; `tab new` with a `chrome://` URL and with a `file://` URL gives the unsupported URL error
+- [x] e2e case: a browser started with `--incognito` and the pref on gives an empty `tab list` and `no browser window` for `tab text`
+- [x] run `mise run build` and `mise run e2e` - must pass before Task 5
 
 ### Task 5: Page sessions and `tab.text`, `tab.html`, `tab.eval`, `tab.shot`
 
