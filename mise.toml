@@ -49,3 +49,34 @@ run = [
   "cargo build --release --locked --manifest-path gidoractl/Cargo.toml",
   "python3 gidoractl/e2e/e2e.py",
 ]
+
+[tasks.release-update]
+description = "Rebuild the release app after a source change, without fetching sources again"
+run = "bash -c 'unset GOROOT GOBIN GOTOOLDIR; set -euo pipefail; source devutils/shared.sh; helium_build chrome/installer/mac'"
+
+[tasks.sign]
+description = "Sign the release app with the Developer ID certificate, without notarization"
+dir = "{{config_root}}/build/src"
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+identity=$(security find-identity -v -p codesigning | sed -n 's/^ *[0-9]*) [0-9A-F]* "\(Developer ID Application: .*\)"$/\1/p' | head -1)
+if [ -z "$identity" ]; then
+  echo "no Developer ID Application identity in the keychain" >&2
+  exit 1
+fi
+# spctl --assess rejects an app that is not notarized, and sign_chrome.py
+# treats that as a signing failure, so a shim answers for it.
+shim="$PWD/out/spctl-shim"
+mkdir -p "$shim"
+printf '#!/bin/sh\necho "spctl assessment skipped: the app is not notarized"\nexit 0\n' > "$shim/spctl"
+chmod +x "$shim/spctl"
+rm -rf out/Default/signed
+PATH="$shim:$PATH" python3 "out/Default/Gidora Packaging/sign_chrome.py" \
+  --input out/Default --output out/Default/signed --identity "$identity" \
+  --disable-packaging --notarize none
+app=$(find out/Default/signed -maxdepth 3 -name Gidora.app | head -1)
+codesign --verify --deep --strict "$app"
+"$app/Contents/MacOS/Gidora" --version
+echo "signed: $PWD/$app"
+'''
