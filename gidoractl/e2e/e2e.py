@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-BROWSER = ROOT / 'build/src/out/Default/Gidora.app/Contents/MacOS/Gidora'
+BROWSER = Path(os.environ.get('GIDORA_BROWSER', ROOT / 'build/src/out/Default/Gidora.app/Contents/MacOS/Gidora'))
 CTL = ROOT / 'gidoractl/target/release/gidoractl'
 SOCKET_NAME = 'control.sock'
 STARTUP_SECONDS = 40
