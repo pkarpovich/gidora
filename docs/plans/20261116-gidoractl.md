@@ -269,18 +269,18 @@ A tab opened by `tab.new` is an agent tab. It gets a DevTools session with focus
 - Create: `gidoractl/e2e/page.html`
 - Modify: `mise.toml`
 
-- [ ] start the patch with quilt as the Patch workflow section describes
-- [ ] `control_prefs`: the pref name constant `gidora.control_socket.enabled` and `RegisterLocalStatePrefs`, default false. Call it from `RegisterLocalState` in `browser_prefs.cc`
-- [ ] `ControlServer`: a process-wide singleton created on first use, with no member added to any existing class. `ChromeBrowserMainParts::PostBrowserStart` calls its init, which observes the pref with a `PrefChangeRegistrar` on Local State and starts or stops the listener to match. `PostMainMessageLoopRun` calls its shutdown before the threads stop
-- [ ] the listener and the connections live on the browser IO thread (`content::GetIOThreadTaskRunner`). They implement the Socket and Wire protocol sections: stale file removal, bind, mode 0600, uid check, one request line per connection, the 1 MiB cap, the 5 s read timer, full write of the response, close
-- [ ] `ControlDispatcher` lives on the UI thread. It takes the request line and a reply callback, validates the envelope, and routes by `cmd` through one table of name to handler. Handlers are asynchronous: each receives the `args` dictionary and a callback for a result dictionary or an error string. Add the `version` handler
-- [ ] add the new sources to the `sources` list of `static_library("browser")` in `chrome/browser/BUILD.gn`, next to the `helium_noise` entries
-- [ ] create `e2e.py` (Python standard library only) with: a fixture HTTP server on `127.0.0.1` with a free port serving `page.html`; a browser launcher that makes a temp profile, seeds `Default/Preferences` with `helium.completed_onboarding: true` and, when asked, `Local State` with the pref set to true, and starts `build/src/out/Default/Gidora.app` with `--user-data-dir`, `--use-mock-keychain`, `--no-first-run`, `--no-default-browser-check` and the fixture URL; a helper that runs `gidoractl/target/release/gidoractl` with `GIDORA_SOCKET` set and returns exit code, stdout and stderr; a clean browser shutdown and temp profile removal at the end. A failed check prints the case name and makes the script exit non-zero
-- [ ] `page.html`: a title, a heading with known text, a button that changes the title when clicked, a text input, and a second button placed far below the first screen
-- [ ] add the mise task `e2e`: build the CLI in release mode, then run `e2e.py`
-- [ ] e2e cases: server enabled gives a socket file with mode 0600; `gidoractl version` prints both lines; a raw request with an unknown command returns `unknown command: nope`; malformed JSON returns `invalid request`; a request over 1 MiB returns `request too large`; a connection that sends nothing is closed by the server after about 5 s
-- [ ] e2e case: a browser started without the pref has no socket file and `gidoractl tab list` exits 1 with the hint
-- [ ] run `mise run build` and `mise run e2e` - must pass before Task 4
+- [x] start the patch with quilt as the Patch workflow section describes
+- [x] `control_prefs`: the pref name constant `gidora.control_socket.enabled` and `RegisterLocalStatePrefs`, default false. Call it from `RegisterLocalState` in `browser_prefs.cc`
+- [x] `ControlServer`: a process-wide singleton created on first use, with no member added to any existing class. `ChromeBrowserMainParts::PostBrowserStart` calls its init, which observes the pref with a `PrefChangeRegistrar` on Local State and starts or stops the listener to match. `PostMainMessageLoopRun` calls its shutdown before the threads stop
+- [x] the listener and the connections live on the browser IO thread (`content::GetIOThreadTaskRunner`). They implement the Socket and Wire protocol sections: stale file removal, bind, mode 0600, uid check, one request line per connection, the 1 MiB cap, the 5 s read timer, full write of the response, close
+- [x] `ControlDispatcher` lives on the UI thread. It takes the request line and a reply callback, validates the envelope, and routes by `cmd` through one table of name to handler. Handlers are asynchronous: each receives the `args` dictionary and a callback for a result dictionary or an error string. Add the `version` handler
+- [x] add the new sources to the `sources` list of `static_library("browser")` in `chrome/browser/BUILD.gn`, next to the `helium_noise` entries
+- [x] create `e2e.py` (Python standard library only) with: a fixture HTTP server on `127.0.0.1` with a free port serving `page.html`; a browser launcher that makes a temp profile, seeds `Default/Preferences` with `helium.completed_onboarding: true` and, when asked, `Local State` with the pref set to true, and starts `build/src/out/Default/Gidora.app` with `--user-data-dir`, `--use-mock-keychain`, `--no-first-run`, `--no-default-browser-check` and the fixture URL; a helper that runs `gidoractl/target/release/gidoractl` with `GIDORA_SOCKET` set and returns exit code, stdout and stderr; a clean browser shutdown and temp profile removal at the end. A failed check prints the case name and makes the script exit non-zero
+- [x] `page.html`: a title, a heading with known text, a button that changes the title when clicked, a text input, and a second button placed far below the first screen
+- [x] add the mise task `e2e`: build the CLI in release mode, then run `e2e.py`
+- [x] e2e cases: server enabled gives a socket file with mode 0600; `gidoractl version` prints both lines; a raw request with an unknown command returns `unknown command: nope`; malformed JSON returns `invalid request`; a request over 1 MiB returns `request too large`; a connection that sends nothing is closed by the server after about 5 s
+- [x] e2e case: a browser started without the pref has no socket file and `gidoractl tab list` exits 1 with the hint
+- [x] run `mise run build` and `mise run e2e` - must pass before Task 4
 
 ### Task 4: Tab commands `tab.list`, `tab.new`, `tab.go`, `tab.close`
 

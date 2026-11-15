@@ -42,3 +42,10 @@ run = [
 [tasks.ctl-install]
 description = "Install gidoractl into ~/.local/bin"
 run = 'cargo install --locked --path gidoractl --root "$HOME/.local"'
+
+[tasks.e2e]
+description = "Run gidoractl against the dev build on a temporary profile"
+run = [
+  "cargo build --release --locked --manifest-path gidoractl/Cargo.toml",
+  "python3 gidoractl/e2e/e2e.py",
+]

@@ -1,0 +1,641 @@
+--- a/chrome/browser/BUILD.gn
++++ b/chrome/browser/BUILD.gn
+@@ -1039,6 +1039,12 @@ source_set("core") {
+     "file_select_helper.cc",
+     "font_family_cache.cc",
+     "font_family_cache.h",
++    "gidora/control/control_dispatcher.cc",
++    "gidora/control/control_dispatcher.h",
++    "gidora/control/control_prefs.cc",
++    "gidora/control/control_prefs.h",
++    "gidora/control/control_server.cc",
++    "gidora/control/control_server.h",
+     "global_features.cc",
+     "helium_noise/helium_noise_settings.cc",
+     "helium_noise/helium_noise_settings.h",
+--- a/chrome/browser/chrome_browser_main.cc
++++ b/chrome/browser/chrome_browser_main.cc
+@@ -41,6 +41,7 @@
+ #include "chrome/browser/enterprise/chrome_browser_main_extra_parts_enterprise.h"
+ #include "chrome/browser/first_run/bookmark_importer.h"
+ #include "chrome/browser/first_run/first_run_features.h"
++#include "chrome/browser/gidora/control/control_server.h"
+ #include "chrome/browser/gpu/chrome_browser_main_extra_parts_gpu.h"
+ #include "chrome/browser/language/url_language_histogram_factory.h"
+ #include "chrome/browser/lifetime/browser_shutdown.h"
+@@ -1731,6 +1732,9 @@ void ChromeBrowserMainParts::PostBrowser
+     chrome_extra_part->PostBrowserStart();
+   }
+ 
++  gidora::control::ControlServer::GetInstance()->Init(
++      browser_process_->local_state());
++
+   browser_process_->browser_policy_connector()->OnBrowserStarted();
+ 
+ #if BUILDFLAG(ENABLE_PROCESS_SINGLETON)
+@@ -2231,6 +2235,8 @@ void ChromeBrowserMainParts::PostMainMes
+ 
+   web_usb_detector_.reset();
+ 
++  gidora::control::ControlServer::GetInstance()->Shutdown();
++
+   for (auto& chrome_extra_part : chrome_extra_parts_) {
+     chrome_extra_part->PostMainMessageLoopRun();
+   }
+--- /dev/null
++++ b/chrome/browser/gidora/control/control_dispatcher.cc
+@@ -0,0 +1,94 @@
++// Copyright 2026 The Gidora Authors
++// You can use, redistribute, and/or modify this source code under
++// the terms of the GPL-3.0 license that can be found in the LICENSE file.
++
++#include "chrome/browser/gidora/control/control_dispatcher.h"
++
++#include <optional>
++#include <utility>
++
++#include "base/functional/bind.h"
++#include "base/json/json_reader.h"
++#include "base/json/json_writer.h"
++#include "base/strings/strcat.h"
++#include "base/version_info/version_info.h"
++#include "content/public/browser/browser_thread.h"
++
++namespace gidora::control {
++
++namespace {
++
++constexpr char kEncodingFailure[] =
++    R"({"ok":false,"error":"the response could not be encoded"})";
++
++std::string Line(const base::DictValue& envelope) {
++  std::string line = base::WriteJson(envelope).value_or(kEncodingFailure);
++  line.push_back('\n');
++  return line;
++}
++
++void Finish(ReplyCallback reply, CommandResult result) {
++  if (!result.has_value()) {
++    std::move(reply).Run(ErrorLine(result.error()));
++    return;
++  }
++  std::move(reply).Run(Line(base::DictValue()
++                                .Set("ok", true)
++                                .Set("result", std::move(result.value()))));
++}
++
++void Version(base::DictValue args, CommandCallback callback) {
++  std::move(callback).Run(
++      base::DictValue()
++          .Set("app", "Gidora")
++          .Set("version", version_info::GetVersionNumber()));
++}
++
++}  // namespace
++
++std::string ErrorLine(std::string_view message) {
++  return Line(base::DictValue().Set("ok", false).Set("error", message));
++}
++
++ControlDispatcher::ControlDispatcher() {
++  handlers_.emplace("version", base::BindRepeating(&Version));
++}
++
++ControlDispatcher::~ControlDispatcher() = default;
++
++void ControlDispatcher::Dispatch(std::string request, ReplyCallback reply) {
++  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
++  std::optional<base::DictValue> envelope =
++      base::JSONReader::ReadDict(request, base::JSON_PARSE_RFC);
++  if (!envelope) {
++    std::move(reply).Run(ErrorLine("invalid request: not a JSON object"));
++    return;
++  }
++  const std::string* name = envelope->FindString("cmd");
++  if (!name) {
++    std::move(reply).Run(
++        ErrorLine("invalid request: cmd is missing or not a string"));
++    return;
++  }
++  base::DictValue args;
++  if (base::Value* value = envelope->Find("args")) {
++    if (!value->is_dict()) {
++      std::move(reply).Run(ErrorLine("invalid request: args is not an object"));
++      return;
++    }
++    args = std::move(*value).TakeDict();
++  }
++  auto handler = handlers_.find(*name);
++  if (handler == handlers_.end()) {
++    std::move(reply).Run(ErrorLine(base::StrCat({"unknown command: ", *name})));
++    return;
++  }
++  handler->second.Run(std::move(args),
++                      base::BindOnce(&Finish, std::move(reply)));
++}
++
++base::WeakPtr<ControlDispatcher> ControlDispatcher::AsWeakPtr() {
++  return weak_factory_.GetWeakPtr();
++}
++
++}  // namespace gidora::control
+--- /dev/null
++++ b/chrome/browser/gidora/control/control_dispatcher.h
+@@ -0,0 +1,45 @@
++// Copyright 2026 The Gidora Authors
++// You can use, redistribute, and/or modify this source code under
++// the terms of the GPL-3.0 license that can be found in the LICENSE file.
++
++#ifndef CHROME_BROWSER_GIDORA_CONTROL_CONTROL_DISPATCHER_H_
++#define CHROME_BROWSER_GIDORA_CONTROL_CONTROL_DISPATCHER_H_
++
++#include <string>
++#include <string_view>
++
++#include "base/containers/flat_map.h"
++#include "base/functional/callback.h"
++#include "base/memory/weak_ptr.h"
++#include "base/types/expected.h"
++#include "base/values.h"
++
++namespace gidora::control {
++
++using CommandResult = base::expected<base::DictValue, std::string>;
++using CommandCallback = base::OnceCallback<void(CommandResult)>;
++using CommandHandler = base::RepeatingCallback<void(base::DictValue args,
++                                                    CommandCallback callback)>;
++using ReplyCallback = base::OnceCallback<void(std::string line)>;
++
++std::string ErrorLine(std::string_view message);
++
++class ControlDispatcher {
++ public:
++  ControlDispatcher();
++  ControlDispatcher(const ControlDispatcher&) = delete;
++  ControlDispatcher& operator=(const ControlDispatcher&) = delete;
++  ~ControlDispatcher();
++
++  void Dispatch(std::string request, ReplyCallback reply);
++
++  base::WeakPtr<ControlDispatcher> AsWeakPtr();
++
++ private:
++  base::flat_map<std::string, CommandHandler> handlers_;
++  base::WeakPtrFactory<ControlDispatcher> weak_factory_{this};
++};
++
++}  // namespace gidora::control
++
++#endif  // CHROME_BROWSER_GIDORA_CONTROL_CONTROL_DISPATCHER_H_
+--- /dev/null
++++ b/chrome/browser/gidora/control/control_prefs.cc
+@@ -0,0 +1,15 @@
++// Copyright 2026 The Gidora Authors
++// You can use, redistribute, and/or modify this source code under
++// the terms of the GPL-3.0 license that can be found in the LICENSE file.
++
++#include "chrome/browser/gidora/control/control_prefs.h"
++
++#include "components/prefs/pref_registry_simple.h"
++
++namespace gidora::control {
++
++void RegisterLocalStatePrefs(PrefRegistrySimple* registry) {
++  registry->RegisterBooleanPref(kControlSocketEnabled, false);
++}
++
++}  // namespace gidora::control
+--- /dev/null
++++ b/chrome/browser/gidora/control/control_prefs.h
+@@ -0,0 +1,18 @@
++// Copyright 2026 The Gidora Authors
++// You can use, redistribute, and/or modify this source code under
++// the terms of the GPL-3.0 license that can be found in the LICENSE file.
++
++#ifndef CHROME_BROWSER_GIDORA_CONTROL_CONTROL_PREFS_H_
++#define CHROME_BROWSER_GIDORA_CONTROL_CONTROL_PREFS_H_
++
++class PrefRegistrySimple;
++
++namespace gidora::control {
++
++inline constexpr char kControlSocketEnabled[] = "gidora.control_socket.enabled";
++
++void RegisterLocalStatePrefs(PrefRegistrySimple* registry);
++
++}  // namespace gidora::control
++
++#endif  // CHROME_BROWSER_GIDORA_CONTROL_CONTROL_PREFS_H_
+--- /dev/null
++++ b/chrome/browser/gidora/control/control_server.cc
+@@ -0,0 +1,341 @@
++// Copyright 2026 The Gidora Authors
++// You can use, redistribute, and/or modify this source code under
++// the terms of the GPL-3.0 license that can be found in the LICENSE file.
++
++#include "chrome/browser/gidora/control/control_server.h"
++
++#include <sys/stat.h>
++#include <unistd.h>
++
++#include <algorithm>
++#include <string>
++#include <utility>
++
++#include "base/containers/flat_set.h"
++#include "base/containers/span.h"
++#include "base/containers/unique_ptr_adapters.h"
++#include "base/files/file_path.h"
++#include "base/functional/bind.h"
++#include "base/logging.h"
++#include "base/memory/scoped_refptr.h"
++#include "base/memory/weak_ptr.h"
++#include "base/path_service.h"
++#include "base/strings/string_view_util.h"
++#include "base/task/bind_post_task.h"
++#include "base/time/time.h"
++#include "base/timer/timer.h"
++#include "chrome/browser/gidora/control/control_dispatcher.h"
++#include "chrome/browser/gidora/control/control_prefs.h"
++#include "chrome/common/chrome_paths.h"
++#include "components/prefs/pref_service.h"
++#include "net/base/io_buffer.h"
++#include "net/base/net_errors.h"
++#include "net/socket/stream_socket.h"
++#include "net/socket/unix_domain_server_socket_posix.h"
++#include "net/traffic_annotation/network_traffic_annotation.h"
++
++namespace gidora::control {
++
++namespace {
++
++constexpr base::FilePath::CharType kSocketName[] =
++    FILE_PATH_LITERAL("control.sock");
++constexpr size_t kMaxSocketPathLength = 103;
++constexpr size_t kMaxRequestSize = 1024 * 1024;
++constexpr int kReadBufferSize = 64 * 1024;
++constexpr base::TimeDelta kReadTimeout = base::Seconds(5);
++constexpr int kBacklog = 16;
++
++constexpr net::NetworkTrafficAnnotationTag kTrafficAnnotation =
++    net::DefineNetworkTrafficAnnotation("gidora_control_socket", R"(
++      semantics {
++        sender: "Gidora control socket"
++        description:
++          "Replies to a local command-line client over a unix domain socket "
++          "inside the user data directory. Nothing leaves the device."
++        trigger: "A local process of the same user sends a command."
++        data: "The result of the command, such as the tab list or page text."
++        destination: LOCAL
++      }
++      policy {
++        cookies_allowed: NO
++        setting: "Off by default. The user turns it on in Gidora settings."
++        policy_exception_justification: "Not implemented."
++      })");
++
++using RequestHandler =
++    base::RepeatingCallback<void(std::string request, ReplyCallback reply)>;
++
++bool IsSameUser(const net::UnixDomainServerSocket::Credentials& credentials) {
++  return credentials.user_id == getuid();
++}
++
++class Connection {
++ public:
++  Connection(std::unique_ptr<net::StreamSocket> socket,
++             RequestHandler handler,
++             base::OnceCallback<void(Connection*)> on_done)
++      : socket_(std::move(socket)),
++        handler_(std::move(handler)),
++        on_done_(std::move(on_done)),
++        read_buffer_(
++            base::MakeRefCounted<net::IOBufferWithSize>(kReadBufferSize)) {}
++
++  Connection(const Connection&) = delete;
++  Connection& operator=(const Connection&) = delete;
++
++  void Start() {
++    timer_.Start(FROM_HERE, kReadTimeout, this, &Connection::Close);
++    Read();
++  }
++
++ private:
++  void Read() {
++    while (true) {
++      int result = socket_->Read(
++          read_buffer_.get(), kReadBufferSize,
++          base::BindOnce(&Connection::OnRead, weak_factory_.GetWeakPtr()));
++      if (result == net::ERR_IO_PENDING || !Consume(result)) {
++        return;
++      }
++    }
++  }
++
++  void OnRead(int result) {
++    if (Consume(result)) {
++      Read();
++    }
++  }
++
++  bool Consume(int result) {
++    if (result <= 0) {
++      Close();
++      return false;
++    }
++    base::span<const uint8_t> data =
++        read_buffer_->span().first(static_cast<size_t>(result));
++    auto newline = std::ranges::find(data, '\n');
++    if (!oversized_) {
++      request_.append(base::as_string_view(
++          data.first(static_cast<size_t>(newline - data.begin()))));
++      if (request_.size() > kMaxRequestSize) {
++        oversized_ = true;
++        request_.clear();
++      }
++    }
++    if (newline == data.end()) {
++      return true;
++    }
++    timer_.Stop();
++    if (oversized_) {
++      Respond(ErrorLine("request too large"));
++      return false;
++    }
++    handler_.Run(
++        std::move(request_),
++        base::BindOnce(&Connection::Respond, weak_factory_.GetWeakPtr()));
++    return false;
++  }
++
++  void Respond(std::string line) {
++    size_t size = line.size();
++    write_buffer_ = base::MakeRefCounted<net::DrainableIOBuffer>(
++        base::MakeRefCounted<net::StringIOBuffer>(std::move(line)), size);
++    Write();
++  }
++
++  void Write() {
++    while (write_buffer_->BytesRemaining() > 0) {
++      int result = socket_->Write(
++          write_buffer_.get(), write_buffer_->BytesRemaining(),
++          base::BindOnce(&Connection::OnWritten, weak_factory_.GetWeakPtr()),
++          kTrafficAnnotation);
++      if (result == net::ERR_IO_PENDING) {
++        return;
++      }
++      if (result <= 0) {
++        Close();
++        return;
++      }
++      write_buffer_->DidConsume(result);
++    }
++    Close();
++  }
++
++  void OnWritten(int result) {
++    if (result <= 0) {
++      Close();
++      return;
++    }
++    write_buffer_->DidConsume(result);
++    Write();
++  }
++
++  void Close() { std::move(on_done_).Run(this); }
++
++  std::unique_ptr<net::StreamSocket> socket_;
++  RequestHandler handler_;
++  base::OnceCallback<void(Connection*)> on_done_;
++  scoped_refptr<net::IOBufferWithSize> read_buffer_;
++  scoped_refptr<net::DrainableIOBuffer> write_buffer_;
++  std::string request_;
++  bool oversized_ = false;
++  base::OneShotTimer timer_;
++  base::WeakPtrFactory<Connection> weak_factory_{this};
++};
++
++}  // namespace
++
++class ControlServer::Listener {
++ public:
++  Listener(base::FilePath path, base::WeakPtr<ControlDispatcher> dispatcher)
++      : path_(std::move(path)), dispatcher_(std::move(dispatcher)) {}
++
++  Listener(const Listener&) = delete;
++  Listener& operator=(const Listener&) = delete;
++
++  ~Listener() {
++    DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
++    if (server_) {
++      unlink(path_.value().c_str());
++    }
++  }
++
++  void Start() {
++    DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
++    unlink(path_.value().c_str());
++    auto server = std::make_unique<net::UnixDomainServerSocket>(
++        base::BindRepeating(&IsSameUser), false);
++    int result = server->BindAndListen(path_.value(), kBacklog);
++    if (result != net::OK) {
++      LOG(ERROR) << "The control socket could not listen on " << path_ << ": "
++                 << net::ErrorToString(result);
++      return;
++    }
++    if (chmod(path_.value().c_str(), S_IRUSR | S_IWUSR) != 0) {
++      PLOG(ERROR) << "The control socket permissions could not be set";
++      unlink(path_.value().c_str());
++      return;
++    }
++    server_ = std::move(server);
++    Accept();
++  }
++
++ private:
++  void Accept() {
++    while (true) {
++      int result = server_->Accept(
++          &accepted_,
++          base::BindOnce(&Listener::OnAccepted, weak_factory_.GetWeakPtr()));
++      if (result == net::ERR_IO_PENDING || !Adopt(result)) {
++        return;
++      }
++    }
++  }
++
++  void OnAccepted(int result) {
++    if (Adopt(result)) {
++      Accept();
++    }
++  }
++
++  bool Adopt(int result) {
++    if (result != net::OK) {
++      LOG(ERROR) << "The control socket stopped accepting connections: "
++                 << net::ErrorToString(result);
++      return false;
++    }
++    auto connection = std::make_unique<Connection>(
++        std::move(accepted_),
++        base::BindRepeating(&Listener::Handle, weak_factory_.GetWeakPtr()),
++        base::BindOnce(&Listener::Remove, base::Unretained(this)));
++    Connection* started = connection.get();
++    connections_.insert(std::move(connection));
++    started->Start();
++    return true;
++  }
++
++  void Handle(std::string request, ReplyCallback reply) {
++    content::GetUIThreadTaskRunner({})->PostTask(
++        FROM_HERE,
++        base::BindOnce(&ControlDispatcher::Dispatch, dispatcher_,
++                       std::move(request),
++                       base::BindPostTaskToCurrentDefault(std::move(reply))));
++  }
++
++  void Remove(Connection* connection) {
++    auto found = connections_.find(connection);
++    if (found != connections_.end()) {
++      connections_.erase(found);
++    }
++  }
++
++  const base::FilePath path_;
++  base::WeakPtr<ControlDispatcher> dispatcher_;
++  std::unique_ptr<net::UnixDomainServerSocket> server_;
++  std::unique_ptr<net::StreamSocket> accepted_;
++  base::flat_set<std::unique_ptr<Connection>, base::UniquePtrComparator>
++      connections_;
++  base::WeakPtrFactory<Listener> weak_factory_{this};
++};
++
++ControlServer* ControlServer::GetInstance() {
++  static base::NoDestructor<ControlServer> instance;
++  return instance.get();
++}
++
++ControlServer::ControlServer() = default;
++
++ControlServer::~ControlServer() = default;
++
++void ControlServer::Init(PrefService* local_state) {
++  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
++  registrar_.Init(local_state);
++  registrar_.Add(kControlSocketEnabled,
++                 base::BindRepeating(&ControlServer::OnEnabledChanged,
++                                     base::Unretained(this)));
++  OnEnabledChanged();
++}
++
++void ControlServer::Shutdown() {
++  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
++  registrar_.Reset();
++  Stop();
++}
++
++void ControlServer::OnEnabledChanged() {
++  if (registrar_.prefs()->GetBoolean(kControlSocketEnabled)) {
++    Start();
++    return;
++  }
++  Stop();
++}
++
++void ControlServer::Start() {
++  if (listener_) {
++    return;
++  }
++  base::FilePath directory;
++  if (!base::PathService::Get(chrome::DIR_USER_DATA, &directory)) {
++    LOG(ERROR) << "The control socket has no user data directory";
++    return;
++  }
++  base::FilePath path = directory.Append(kSocketName);
++  if (path.value().size() > kMaxSocketPathLength) {
++    LOG(ERROR) << "The control socket path is too long for a unix socket: "
++               << path;
++    return;
++  }
++  dispatcher_ = std::make_unique<ControlDispatcher>();
++  listener_.reset(new Listener(std::move(path), dispatcher_->AsWeakPtr()));
++  content::GetIOThreadTaskRunner({})->PostTask(
++      FROM_HERE,
++      base::BindOnce(&Listener::Start, base::Unretained(listener_.get())));
++}
++
++void ControlServer::Stop() {
++  listener_.reset();
++  dispatcher_.reset();
++}
++
++}  // namespace gidora::control
+--- /dev/null
++++ b/chrome/browser/gidora/control/control_server.h
+@@ -0,0 +1,48 @@
++// Copyright 2026 The Gidora Authors
++// You can use, redistribute, and/or modify this source code under
++// the terms of the GPL-3.0 license that can be found in the LICENSE file.
++
++#ifndef CHROME_BROWSER_GIDORA_CONTROL_CONTROL_SERVER_H_
++#define CHROME_BROWSER_GIDORA_CONTROL_CONTROL_SERVER_H_
++
++#include <memory>
++
++#include "base/no_destructor.h"
++#include "components/prefs/pref_change_registrar.h"
++#include "content/public/browser/browser_thread.h"
++
++class PrefService;
++
++namespace gidora::control {
++
++class ControlDispatcher;
++
++class ControlServer {
++ public:
++  static ControlServer* GetInstance();
++
++  ControlServer(const ControlServer&) = delete;
++  ControlServer& operator=(const ControlServer&) = delete;
++
++  void Init(PrefService* local_state);
++  void Shutdown();
++
++ private:
++  friend class base::NoDestructor<ControlServer>;
++  class Listener;
++
++  ControlServer();
++  ~ControlServer();
++
++  void OnEnabledChanged();
++  void Start();
++  void Stop();
++
++  PrefChangeRegistrar registrar_;
++  std::unique_ptr<ControlDispatcher> dispatcher_;
++  std::unique_ptr<Listener, content::BrowserThread::DeleteOnIOThread> listener_;
++};
++
++}  // namespace gidora::control
++
++#endif  // CHROME_BROWSER_GIDORA_CONTROL_CONTROL_SERVER_H_
+--- a/chrome/browser/prefs/browser_prefs.cc
++++ b/chrome/browser/prefs/browser_prefs.cc
+@@ -34,6 +34,7 @@
+ #include "chrome/browser/enterprise/util/managed_browser_utils.h"
+ #include "chrome/browser/external_protocol/external_protocol_handler.h"
+ #include "chrome/browser/first_run/first_run.h"
++#include "chrome/browser/gidora/control/control_prefs.h"
+ #include "chrome/browser/glic/glic_pref_names.h"
+ #include "chrome/browser/glic/suggestions/contextual_cueing_prefs.h"
+ #include "chrome/browser/gpu/gpu_mode_manager.h"
+@@ -1718,6 +1719,7 @@ void RegisterLocalState(PrefRegistrySimp
+   ProfileNetworkContextService::RegisterLocalStatePrefs(registry);
+   profiles::RegisterPrefs(registry);
+   feature_engagement::RegisterLocalStatePrefs(registry);
++  gidora::control::RegisterLocalStatePrefs(registry);
+ #if BUILDFLAG(IS_ANDROID)
+   PushMessagingServiceImpl::RegisterPrefs(registry);
+ #endif
