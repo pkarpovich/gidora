@@ -1,0 +1,113 @@
+--- a/chrome/browser/resources/settings/BUILD.gn
++++ b/chrome/browser/resources/settings/BUILD.gn
+@@ -56,6 +56,7 @@ build_webui("build") {
+     "controls/settings_checkbox.ts",
+     "controls/settings_radio_group.ts",
+     "controls/settings_toggle_button.ts",
++    "gidora_page/gidora_page.ts",
+     "privacy_page/cookies_page.ts",
+     "privacy_page/noise_page.ts",
+     "privacy_page/personalization_options.ts",
+--- /dev/null
++++ b/chrome/browser/resources/settings/gidora_page/gidora_page.html
+@@ -0,0 +1,8 @@
++<style include="cr-shared-style settings-shared"></style>
++<settings-section page-title="Gidora">
++  <div class="cr-row first">
++    <div class="flex cr-padded-text">
++      Gidora settings will live here. This page is a placeholder.
++    </div>
++  </div>
++</settings-section>
+--- /dev/null
++++ b/chrome/browser/resources/settings/gidora_page/gidora_page.ts
+@@ -0,0 +1,28 @@
++// Copyright 2026 The Gidora Authors
++// You can use, redistribute, and/or modify this source code under
++// the terms of the GPL-3.0 license that can be found in the LICENSE file.
++
++import '../settings_page/settings_section.js';
++import '../settings_shared.css.js';
++
++import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
++
++import {getTemplate} from './gidora_page.html.js';
++
++export class SettingsGidoraPageElement extends PolymerElement {
++  static get is() {
++    return 'settings-gidora-page';
++  }
++
++  static get template() {
++    return getTemplate();
++  }
++}
++
++declare global {
++  interface HTMLElementTagNameMap {
++    'settings-gidora-page': SettingsGidoraPageElement;
++  }
++}
++
++customElements.define(SettingsGidoraPageElement.is, SettingsGidoraPageElement);
+--- a/chrome/browser/resources/settings/route.ts
++++ b/chrome/browser/resources/settings/route.ts
+@@ -238,6 +238,8 @@ function createRoutes(): SettingsRoutes
+         '/onStartup', 'onStartup', loadTimeData.getString('onStartup'));
+   }
+ 
++  r.GIDORA = r.BASIC.createSection('/gidora', 'gidora', 'Gidora');
++
+   // Advanced Routes
+   r.ADVANCED = new Route('/advanced');
+ 
+--- a/chrome/browser/resources/settings/router.ts
++++ b/chrome/browser/resources/settings/router.ts
+@@ -38,6 +38,7 @@ export interface SettingsRoutes {
+   GEMINI: Route;
+   GEMINI_LOGIN: Route;
+   GEMINI_ENTERPRISE: Route;
++  GIDORA: Route;
+   GLIC_SECTION: Route;
+   HELIUM_SERVICES: Route;
+   HISTORY_SEARCH: Route;
+--- a/chrome/browser/resources/settings/settings_main/settings_main.html
++++ b/chrome/browser/resources/settings/settings_main/settings_main.html
+@@ -137,6 +137,13 @@
+     </div>
+   </template>
+ 
++  <div slot="view" id="gidora">
++    <template is="dom-if" if="[[renderPlugin_(
++        routes_.GIDORA, lastRoute_, inSearchMode_)]]">
++      <settings-gidora-page></settings-gidora-page>
++    </template>
++  </div>
++
+   <template is="dom-if" if="[[showPage_(pageVisibility_.languages)]]">
+     <div slot="view" id="languages">
+       <template is="dom-if" if="[[renderPlugin_(
+--- a/chrome/browser/resources/settings/settings_main/settings_main.ts
++++ b/chrome/browser/resources/settings/settings_main/settings_main.ts
+@@ -14,6 +14,7 @@ import '../about_page/about_page.js';
+ import '../ai_page/ai_page_index.js';
+ import '../appearance_page/appearance_page_index.js';
+ import '../autofill_page/autofill_page_index.js';
++import '../gidora_page/gidora_page.js';
+ import '../on_startup_page/on_startup_page.js';
+ import '../people_page/people_page_index.js';
+ import '../performance_page/performance_page_index.js';
+--- a/chrome/browser/resources/settings/settings_menu/settings_menu.html
++++ b/chrome/browser/resources/settings/settings_menu/settings_menu.html
+@@ -57,6 +57,11 @@
+           <span class="menu-label">$i18n{onStartup}</span>
+           <cr-ripple></cr-ripple>
+         </a>
++        <a role="menuitem" id="gidora" href="/gidora" class="cr-nav-menu-item">
++          <cr-icon icon="settings20:flash-on-filled"></cr-icon>
++          <span class="menu-label">Gidora</span>
++          <cr-ripple></cr-ripple>
++        </a>
+         <div class="menu-separator"></div>
+         <a role="menuitem" id="languages" href="/languages"
+             class="cr-nav-menu-item"
