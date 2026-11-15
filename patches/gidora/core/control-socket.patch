@@ -1671,3 +1671,48 @@
 +}  // namespace gidora::control
 +
 +#endif  // CHROME_BROWSER_GIDORA_CONTROL_PAGE_SESSION_H_
+--- a/chrome/browser/extensions/api/settings_private/prefs_util.cc
++++ b/chrome/browser/extensions/api/settings_private/prefs_util.cc
+@@ -21,6 +21,7 @@
+ #include "chrome/browser/extensions/api/settings_private/generated_prefs.h"
+ #include "chrome/browser/extensions/api/settings_private/generated_prefs_factory.h"
+ #include "chrome/browser/extensions/settings_api_helpers.h"
++#include "chrome/browser/gidora/control/control_prefs.h"
+ #include "chrome/browser/glic/glic_pref_names.h"
+ #include "chrome/browser/metrics/profile_pref_names.h"
+ #include "chrome/browser/nearby_sharing/common/nearby_share_prefs.h"
+@@ -227,6 +228,8 @@ const PrefsUtil::TypedPrefMap& PrefsUtil
+       settings_api::PrefType::kBoolean;
+   (*s_allowlist)[::prefs::kHeliumVerticalPinnedTabsPerRow] =
+       settings_api::PrefType::kNumber;
++  (*s_allowlist)[gidora::control::kControlSocketEnabled] =
++      settings_api::PrefType::kBoolean;
+   (*s_allowlist)[::prefs::kHeliumCenteredLocationBar] =
+       settings_api::PrefType::kBoolean;
+   (*s_allowlist)[::prefs::kHeliumMinimalLocationBar] =
+--- a/chrome/browser/resources/settings/gidora_page/gidora_page.html
++++ b/chrome/browser/resources/settings/gidora_page/gidora_page.html
+@@ -1,8 +1,8 @@
+ <style include="cr-shared-style settings-shared"></style>
+ <settings-section page-title="Gidora">
+-  <div class="cr-row first">
+-    <div class="flex cr-padded-text">
+-      Gidora settings will live here. This page is a placeholder.
+-    </div>
+-  </div>
++  <settings-toggle-button id="controlSocket"
++      pref-key="gidora.control_socket.enabled"
++      label="Agent control socket"
++      sub-label="Lets local command-line tools control this browser through gidoractl.">
++  </settings-toggle-button>
+ </settings-section>
+--- a/chrome/browser/resources/settings/gidora_page/gidora_page.ts
++++ b/chrome/browser/resources/settings/gidora_page/gidora_page.ts
+@@ -2,6 +2,7 @@
+ // You can use, redistribute, and/or modify this source code under
+ // the terms of the GPL-3.0 license that can be found in the LICENSE file.
+ 
++import '../controls/settings_toggle_button.js';
+ import '../settings_page/settings_section.js';
+ import '../settings_shared.css.js';
+ 

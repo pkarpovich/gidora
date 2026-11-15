@@ -332,15 +332,15 @@ A tab opened by `tab.new` is an agent tab. It gets a DevTools session with focus
 ### Task 7: Settings toggle, then commit the control socket
 
 **Files:**
-- Modify (inside the patch): `chrome/browser/resources/settings/gidora_page/gidora_page.html`, `gidora_page.ts`, `chrome/browser/resources/settings/settings_main/settings_main.html`, `chrome/browser/extensions/api/settings_private/prefs_util.cc`
+- Modify (inside the patch): `chrome/browser/resources/settings/gidora_page/gidora_page.html`, `gidora_page.ts`, `chrome/browser/extensions/api/settings_private/prefs_util.cc`
 - Modify: `patches/series`
 
-- [ ] add `gidora.control_socket.enabled` to the settings allowlist in `prefs_util.cc` as a boolean, using the constant from `control_prefs.h`
-- [ ] make `SettingsGidoraPageElement` use `PrefsMixin`, pass `prefs` to it from `settings_main.html`, and replace the placeholder row with a `settings-toggle-button` bound to the pref. Label: `Agent control socket`. Sub-label: `Lets local command-line tools control this browser through gidoractl.` Both strings are literals in the HTML
-- [ ] one-off check with a throwaway script (not committed): on a temp profile started with `--remote-debugging-pipe`, open `chrome://settings/gidora`, click the toggle through the page, and confirm that the socket file appears, that `gidoractl version` answers, that a second click removes the socket file, and that `Local State` holds the pref
-- [ ] save a screenshot of the page to `build/gidora-settings-control-toggle.png`
-- [ ] run `he format`, `mise run build`, `mise run e2e` and `mise run ctl-check`
-- [ ] commit in two commits on `gidora`: `gidoractl: add the control CLI` (the crate, `mise.toml`, `.gitignore`) and, after `he unmerge`, `gidora/core: add a control socket for gidoractl` (the patch, `patches/series`, `gidoractl/e2e/`). Run `he merge` afterwards
+- [x] add `gidora.control_socket.enabled` to the settings allowlist in `prefs_util.cc` as a boolean, using the constant from `control_prefs.h`
+- [x] replace the placeholder row with a `settings-toggle-button` bound to the pref through its `pref-key` attribute, the way Helium's own settings pages do. No `PrefsMixin` and no change to `settings_main.html` is needed. Label: `Agent control socket`. Sub-label: `Lets local command-line tools control this browser through gidoractl.` Both strings are literals in the HTML
+- [x] one-off check with a throwaway script (not committed): on a temp profile started with `--remote-debugging-pipe`, open `chrome://settings/gidora`, click the toggle through the page, and confirm that the socket file appears, that `gidoractl version` answers, that a second click removes the socket file, and that `Local State` holds the pref
+- [x] save a screenshot of the page to `build/gidora-settings-control-toggle.png`
+- [x] run `he format`, `mise run build`, `mise run e2e` and `mise run ctl-check`
+- [x] commit on `gidora` after `he unmerge`, then run `he merge`. The CLI and the server tasks were committed one by one as they were finished, on the user's request
 
 ### Task 8: Restrict remote debugging on the default profile
 
