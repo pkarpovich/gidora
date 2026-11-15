@@ -9,3 +9,5 @@ build/
 resources/generated/
 
 .venv/
+
+gidoractl/target/

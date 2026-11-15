@@ -150,7 +150,7 @@ A tab opened by `tab.new` is an agent tab. It gets a DevTools session with focus
 | `tab.text` | `tab?` | `{"text":str}` |
 | `tab.html` | `tab?` | `{"html":str}` |
 | `tab.eval` | `tab?`, `expression` | `{"value":<any JSON>}` |
-| `tab.shot` | `tab?` | `{"png":"<base64>"}` |
+| `tab.shot` | `tab?` | `{"id":int,"png":"<base64>"}` |
 | `tab.click` | `tab?`, and `selector` or `x` with `y` | `{"x":number,"y":number}` |
 | `tab.type` | `tab?`, `text` | `{}` |
 
@@ -233,14 +233,14 @@ A tab opened by `tab.new` is an agent tab. It gets a DevTools session with focus
 - Modify: `mise.toml`
 - Modify: `.gitignore`
 
-- [ ] add `rust = "1.100.0"` to `[tools]` in `mise.toml`. Add the tasks `ctl-check` (the three gate commands, run in `gidoractl/`) and `ctl-install` (`cargo install --locked --path gidoractl --root "$HOME/.local"`, which puts the binary on PATH at `$HOME/.local/bin`)
-- [ ] add `gidoractl/target/` to `.gitignore`
-- [ ] create the binary crate `gidoractl`, edition 2024, with the lints block from the Code-Quality Rules and the dependencies `clap` 4.6.7 (features `derive`, `env`), `serde_json` 1.0.154, `base64` 0.23.1, `anyhow` 1.0.104. Before pinning, confirm each is still the current stable release
-- [ ] in `cli.rs` define the clap tree from the CLI section: global `--json` and `--socket` (env `GIDORA_SOCKET`), `version`, and `tab` with `list`, `new`, `go`, `close`, `text`, `html`, `eval`, `shot`, `click`, `type`
-- [ ] in `cli.rs` add the conversion from a parsed command to the wire request (`cmd` string plus `args` object) exactly as the wire table defines. `tab click` takes either a selector or `--at <x>,<y>`, never both and never neither. The `-` stdin forms are resolved through a reader passed in as a parameter so tests can supply the input
-- [ ] write unit tests: every subcommand produces its wire request; `--tab` is carried as an integer; `tab click --at 10,20` gives `x` and `y`; stdin `-` for `eval` and `type`
-- [ ] write unit tests for usage errors: `tab click` with both forms, with neither, a malformed `--at`, a non-numeric `--tab`, `tab new` without a URL
-- [ ] run `mise run ctl-check` - must pass before Task 2
+- [x] add `rust = "1.100.0"` to `[tools]` in `mise.toml`. Add the tasks `ctl-check` (the three gate commands, run in `gidoractl/`) and `ctl-install` (`cargo install --locked --path gidoractl --root "$HOME/.local"`, which puts the binary on PATH at `$HOME/.local/bin`)
+- [x] add `gidoractl/target/` to `.gitignore`
+- [x] create the binary crate `gidoractl`, edition 2024, with the lints block from the Code-Quality Rules and the dependencies `clap` 4.6.7 (features `derive`, `env`), `serde_json` 1.0.154, `base64` 0.23.1, `anyhow` 1.0.104. Before pinning, confirm each is still the current stable release
+- [x] in `cli.rs` define the clap tree from the CLI section: global `--json` and `--socket` (env `GIDORA_SOCKET`), `version`, and `tab` with `list`, `new`, `go`, `close`, `text`, `html`, `eval`, `shot`, `click`, `type`
+- [x] in `cli.rs` add the conversion from a parsed command to the wire request (`cmd` string plus `args` object) exactly as the wire table defines. `tab click` takes either a selector or `--at <x>,<y>`, never both and never neither. The `-` stdin forms are resolved through a reader passed in as a parameter so tests can supply the input
+- [x] write unit tests: every subcommand produces its wire request; `--tab` is carried as an integer; `tab click --at 10,20` gives `x` and `y`; stdin `-` for `eval` and `type`
+- [x] write unit tests for usage errors: `tab click` with both forms, with neither, a malformed `--at`, a non-numeric `--tab`, `tab new` without a URL
+- [x] run `mise run ctl-check` - must pass before Task 2
 
 ### Task 2: Socket client and output rendering in gidoractl
 
@@ -249,14 +249,14 @@ A tab opened by `tab.new` is an agent tab. It gets a DevTools session with focus
 - Create: `gidoractl/src/output.rs`
 - Modify: `gidoractl/src/main.rs`
 
-- [ ] in `client.rs` implement one round trip over `std::os::unix::net::UnixStream`: connect, write the request line, read to end of stream, 60 s read timeout. The default socket path is built from `$HOME` as in the Socket section. A failed connect returns the message from the CLI section
-- [ ] in `output.rs` implement rendering as pure functions from the parsed response and the command to bytes for stdout, following the stdout table. `--json` bypasses rendering and prints the response line unchanged
-- [ ] `tab shot`: decode the base64, write the file or stdout, print the path only when a file was written
-- [ ] in `main.rs` wire parsing, the round trip and rendering. `ok: false` prints `gidoractl: <error>` on stderr and exits 1. A `BrokenPipe` write error on stdout exits 0 without output
-- [ ] `version` prints the client line even when the server cannot be reached, then reports the connect failure on stderr and exits 1
-- [ ] write unit tests for `output.rs`: the `tab list` line format including a title with a tab and a newline; `eval` JSON output and `-r` on a string and on a non-string; text without and with a trailing newline; an error response
-- [ ] check by hand with no browser socket present: `gidoractl --socket <missing path> tab list` exits 1 with the hint, and `gidoractl tab list | head -0` does not print a panic
-- [ ] run `mise run ctl-check` - must pass before Task 3
+- [x] in `client.rs` implement one round trip over `std::os::unix::net::UnixStream`: connect, write the request line, read to end of stream, 60 s read timeout. The default socket path is built from `$HOME` as in the Socket section. A failed connect returns the message from the CLI section
+- [x] in `output.rs` implement rendering as pure functions from the parsed response and the command to bytes for stdout, following the stdout table. `--json` bypasses rendering and prints the response line unchanged
+- [x] `tab shot`: decode the base64, write the file or stdout, print the path only when a file was written
+- [x] in `main.rs` wire parsing, the round trip and rendering. `ok: false` prints `gidoractl: <error>` on stderr and exits 1. A `BrokenPipe` write error on stdout exits 0 without output
+- [x] `version` prints the client line even when the server cannot be reached, then reports the connect failure on stderr and exits 1
+- [x] write unit tests for `output.rs`: the `tab list` line format including a title with a tab and a newline; `eval` JSON output and `-r` on a string and on a non-string; text without and with a trailing newline; an error response
+- [x] check by hand with no browser socket present: `gidoractl --socket <missing path> tab list` exits 1 with the hint, and `gidoractl tab list | head -0` does not print a panic
+- [x] run `mise run ctl-check` - must pass before Task 3
 
 ### Task 3: Control server lifecycle, transport and the `version` command
 

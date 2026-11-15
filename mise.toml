@@ -2,6 +2,7 @@
 python = "3.13.18"
 uv = "0.13.8"
 sccache = "0.19.0"
+rust = "1.100.0"
 
 [env]
 _.python.venv = { path = ".venv", create = true }
@@ -28,3 +29,16 @@ run = "zsh -c 'source dev.sh && he run'"
 description = "Build the release app from a clean source tree"
 depends = ["deps"]
 run = "bash -c 'unset GOROOT GOBIN GOTOOLDIR; set -euo pipefail; source devutils/shared.sh; prepare_sources true; configure_build arm64 release; helium_build chrome/installer/mac'"
+
+[tasks.ctl-check]
+description = "Format, lint and test gidoractl"
+dir = "{{config_root}}/gidoractl"
+run = [
+  "cargo fmt --check",
+  "cargo clippy --all-targets --all-features --locked -- -D warnings",
+  "cargo test --locked",
+]
+
+[tasks.ctl-install]
+description = "Install gidoractl into ~/.local/bin"
+run = 'cargo install --locked --path gidoractl --root "$HOME/.local"'
