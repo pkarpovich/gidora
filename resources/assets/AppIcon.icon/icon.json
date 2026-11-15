@@ -1,72 +1,134 @@
 {
-  "features" : [
-    "specular-location"
-  ],
-  "fill-specializations" : [
+  "fill-specializations": [
     {
-      "value" : {
-        "linear-gradient" : [
-          "display-p3:0.05490,0.11373,0.36863,1.00000",
-          "display-p3:0.33333,0.40784,0.85098,1.00000"
+      "value": {
+        "linear-gradient": [
+          "srgb:0.13725,0.15686,0.38039,1.00000",
+          "srgb:0.05098,0.05882,0.18039,1.00000"
         ]
       }
     },
     {
-      "appearance" : "dark",
-      "value" : "automatic"
+      "appearance": "dark",
+      "value": {
+        "linear-gradient": [
+          "srgb:0.13725,0.15686,0.38039,1.00000",
+          "srgb:0.05098,0.05882,0.18039,1.00000"
+        ]
+      }
     }
   ],
-  "groups" : [
+  "groups": [
     {
-      "layers" : [
+      "layers": [
         {
-          "fill-specializations" : [
+          "fill-specializations": [
             {
-              "value" : {
-                "solid" : "srgb:0.98431,0.98824,1.00000,1.00000"
+              "value": {
+                "solid": "srgb:1.00000,0.94902,0.70196,1.00000"
               }
             },
             {
-              "appearance" : "tinted",
-              "value" : {
-                "solid" : "srgb:0.98431,0.98824,1.00000,1.00000"
+              "appearance": "dark",
+              "value": {
+                "solid": "srgb:1.00000,0.94902,0.70196,1.00000"
+              }
+            },
+            {
+              "appearance": "tinted",
+              "value": {
+                "solid": "srgb:1.00000,1.00000,1.00000,1.00000"
               }
             }
           ],
-          "glass" : true,
-          "hidden" : false,
-          "image-name" : "logo.svg",
-          "name" : "logo",
-          "opacity-specializations" : [
+          "glass": false,
+          "hidden": false,
+          "image-name": "core.svg",
+          "name": "core",
+          "position": {
+            "scale": 1,
+            "translation-in-points": [
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "fill-specializations": [
             {
-              "value" : 1
+              "value": {
+                "solid": "srgb:0.94902,0.63529,0.11765,1.00000"
+              }
             },
             {
-              "appearance" : "dark",
-              "value" : 0.96
+              "appearance": "dark",
+              "value": {
+                "solid": "srgb:0.94902,0.63529,0.11765,1.00000"
+              }
+            },
+            {
+              "appearance": "tinted",
+              "value": {
+                "solid": "srgb:0.55000,0.55000,0.55000,1.00000"
+              }
             }
           ],
-          "position" : {
-            "scale" : 1.45,
-            "translation-in-points" : [
+          "glass": false,
+          "hidden": false,
+          "image-name": "lenses.svg",
+          "name": "lenses",
+          "position": {
+            "scale": 1,
+            "translation-in-points": [
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "srgb:1.00000,0.82353,0.24706,1.00000"
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "srgb:1.00000,0.82353,0.24706,1.00000"
+              }
+            },
+            {
+              "appearance": "tinted",
+              "value": {
+                "solid": "srgb:0.85000,0.85000,0.85000,1.00000"
+              }
+            }
+          ],
+          "glass": false,
+          "hidden": false,
+          "image-name": "circles.svg",
+          "name": "circles",
+          "position": {
+            "scale": 1,
+            "translation-in-points": [
               0,
               0
             ]
           }
         }
       ],
-      "shadow" : {
-        "kind" : "neutral",
-        "opacity" : 0.2
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.2
       },
-      "specular" : "inside",
-      "translucency" : {
-        "enabled" : true,
-        "value" : 0.5
+      "translucency": {
+        "enabled": false,
+        "value": 0.5
       }
     }
   ],
-  "supported-platforms" : {
-    "squares" : "shared"
+  "supported-platforms": {
+    "squares": "shared"
   }
 }
