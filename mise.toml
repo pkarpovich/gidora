@@ -23,3 +23,8 @@ run = "zsh -c 'unset GOROOT GOBIN GOTOOLDIR; source dev.sh && he build'"
 [tasks.start]
 description = "Run the development build with its own data directory"
 run = "zsh -c 'source dev.sh && he run'"
+
+[tasks.release]
+description = "Build the release app from a clean source tree"
+depends = ["deps"]
+run = "bash -c 'unset GOROOT GOBIN GOTOOLDIR; set -euo pipefail; source devutils/shared.sh; prepare_sources true; configure_build arm64 release; helium_build chrome/installer/mac'"
