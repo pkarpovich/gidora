@@ -349,11 +349,11 @@ A tab opened by `tab.new` is an agent tab. It gets a DevTools session with focus
 - Modify (inside the patch): `chrome/browser/devtools/remote_debugging_server.cc`
 - Modify: `patches/series`
 
-- [ ] in `IsRemoteDebuggingAllowed` make the default-user-data-dir check enabled in this build without the Google branding flag. Keep the testing override variable working, so the change is a single condition
-- [ ] one-off check, default profile refused: start the dev build with `CFFIXED_USER_HOME=<temp dir>`, `--use-mock-keychain` and `--remote-debugging-port=<free port>`. First confirm that the profile directory was created inside the temp dir. Then confirm that nothing listens on the port
-- [ ] one-off check, custom profile allowed: start with `--user-data-dir=<temp dir>` and the same port switch, and confirm that `/json/version` answers on the port
-- [ ] run `mise run build` and `mise run e2e`
-- [ ] commit after `he unmerge`: `gidora/core: restrict remote debugging on the default profile`. Run `he merge` afterwards
+- [x] in `IsRemoteDebuggingAllowed` make the default-user-data-dir check enabled in this build without the Google branding flag. Keep the testing override variable working, so the change is a single condition
+- [x] one-off check, default profile refused: start the dev build with `CFFIXED_USER_HOME=<temp dir>`, `--use-mock-keychain` and `--remote-debugging-port=<free port>`. First confirm that the profile directory was created inside the temp dir. Then confirm that nothing listens on the port
+- [x] one-off check, custom profile allowed: start with `--user-data-dir=<temp dir>` and the same port switch, and confirm that `/json/version` answers on the port
+- [x] run `mise run build` and `mise run e2e`
+- [x] commit after `he unmerge`: `gidora/core: restrict remote debugging on the default profile`. Run `he merge` afterwards
 
 ### Task 9: Release build, install and acceptance
 

@@ -30,3 +30,4 @@ gidora/ui/vertical-pinned-tabs-per-row.patch
 gidora/ui/copy-link-page-action.patch
 gidora/core/gidora-identity.patch
 gidora/core/control-socket.patch
+gidora/core/remote-debugging-guard.patch

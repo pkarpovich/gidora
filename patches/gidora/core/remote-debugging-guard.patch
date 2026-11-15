@@ -1,0 +1,11 @@
+--- a/chrome/browser/devtools/remote_debugging_server.cc
++++ b/chrome/browser/devtools/remote_debugging_server.cc
+@@ -49,7 +49,7 @@ bool g_tethering_enabled = false;
+ 
+ #if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX)
+ bool g_enable_default_user_data_dir_check_for_chromium_branding_for_testing =
+-    false;
++    true;
+ #endif  // BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX)
+ 
+ const uint16_t kMinTetheringPort = 9333;
