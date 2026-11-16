@@ -1,0 +1,82 @@
+name: Tap
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  cask:
+    if: ${{ !github.event.release.prerelease }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read the version and the checksum
+        id: facts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern Gidora-arm64.dmg
+          {
+            echo "version=${TAG#v}"
+            echo "sha=$(sha256sum Gidora-arm64.dmg | cut -d' ' -f1)"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v7
+        with:
+          repository: pkarpovich/homebrew-apps
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+
+      - name: Write the cask
+        env:
+          VERSION: ${{ steps.facts.outputs.version }}
+          SHA: ${{ steps.facts.outputs.sha }}
+        run: |
+          mkdir -p tap/Casks
+          cat > tap/Casks/gidora.rb <<EOF
+          cask "gidora" do
+            version "${VERSION}"
+            sha256 "${SHA}"
+
+            url "https://github.com/pkarpovich/gidora/releases/download/v#{version}/Gidora-arm64.dmg"
+            name "Gidora"
+            desc "Chromium-based web browser"
+            homepage "https://github.com/pkarpovich/gidora"
+
+            # The fork carries the tags of its upstream, which look like newer
+            # versions to the default tag check.
+            livecheck do
+              url :url
+              strategy :github_latest
+            end
+
+            depends_on arch: :arm64
+            depends_on macos: :ventura
+
+            app "Gidora.app"
+            binary "#{appdir}/Gidora.app/Contents/MacOS/gidoractl"
+
+            uninstall quit: "space.pkarpovich.gidora"
+
+            zap trash: [
+              "~/Library/Application Support/space.pkarpovich.gidora",
+              "~/Library/Caches/space.pkarpovich.gidora",
+              "~/Library/Preferences/space.pkarpovich.gidora.plist",
+            ]
+          end
+          EOF
+
+      - name: Commit and push
+        working-directory: tap
+        env:
+          VERSION: ${{ steps.facts.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/gidora.rb
+          git diff --cached --quiet && exit 0
+          git commit -m "gidora ${VERSION}"
+          git push

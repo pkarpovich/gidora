@@ -13,7 +13,15 @@ The control socket is off by default.
 
 The browser then listens on `control.sock` in its user data directory (`~/Library/Application Support/space.pkarpovich.gidora/control.sock`). The socket has mode 0600 and accepts only processes of the same user. There is no other authentication: any process that runs as you can control the browser while the switch is on.
 
-Install the client with `mise run ctl-install`. It puts `gidoractl` into `~/.local/bin`.
+## Installing
+
+```sh
+brew install --cask pkarpovich/apps/gidora
+```
+
+The cask installs Gidora and links `gidoractl` into the Homebrew `bin` folder. The client lives inside the app bundle (`Gidora.app/Contents/MacOS/gidoractl`), so the browser and its client always have the same version, and `brew upgrade` updates both.
+
+When working on the code, `mise run ctl-install` builds the client from this checkout and puts it into `~/.local/bin`.
 
 ## Commands
 

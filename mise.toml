@@ -103,13 +103,20 @@ mkdir -p "$shim"
 printf '#!/bin/sh\necho "spctl assessment skipped: the app is not notarized yet"\nexit 0\n' > "$shim/spctl"
 chmod +x "$shim/spctl"
 rm -rf out/Default/signed
+# The CLI ships inside the bundle so that one install gives matching
+# versions of the browser and its client. It must be signed before the
+# bundle that seals it.
+cargo build --release --locked --manifest-path "$root/gidoractl/Cargo.toml"
+cli="out/Default/Gidora.app/Contents/MacOS/gidoractl"
+install -m 755 "$root/gidoractl/target/release/gidoractl" "$cli"
+codesign --force --options runtime --timestamp --sign "$identity" \
+  --identifier space.pkarpovich.gidora.gidoractl "$cli"
 PATH="$shim:$PATH" python3 "out/Default/Gidora Packaging/sign_chrome.py" \
   --input out/Default --output out/Default/signed --identity "$identity" \
   --disable-packaging --notarize staple --notary-arg=--keychain-profile="$profile"
 app=$(find out/Default/signed -maxdepth 3 -name Gidora.app | head -1)
-version=$("$app/Contents/MacOS/Gidora" --version | awk '{print $2}')
 arch=$(lipo -archs "$app/Contents/MacOS/Gidora")
-dmg="$root/build/Gidora-$version-$arch.dmg"
+dmg="$root/build/Gidora-$arch.dmg"
 rm -f "$dmg"
 chrome/installer/mac/pkg-dmg \
   --sourcefile --source "$app" --target "$dmg" \
@@ -123,6 +130,8 @@ codesign --sign "$identity" --identifier space.pkarpovich.gidora --force "$dmg"
 xcrun notarytool submit "$dmg" --keychain-profile "$profile" --wait
 xcrun stapler staple "$dmg"
 spctl --assess --type execute -vv "$app"
+codesign --verify --strict -vv "$app/Contents/MacOS/gidoractl"
+"$app/Contents/MacOS/gidoractl" --help > /dev/null
 spctl --assess --type open --context context:primary-signature -vv "$dmg"
 echo "dmg: $dmg"
 '''
