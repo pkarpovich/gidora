@@ -86,6 +86,17 @@ A failure is `{"ok":false,"error":"<message>"}`. A request may be up to 1 MiB. T
 
 `--socket <path>` or the environment variable `GIDORA_SOCKET` points the client at another socket, for example the one of a browser started with `--user-data-dir`.
 
+## Claude plugin
+
+The repository is a Claude Code plugin marketplace (`.claude-plugin/marketplace.json`) named `gidora`. It carries the `gidoractl` plugin (`plugins/gidoractl`): a skill that teaches an agent to drive the browser through this tool. The marketplace lives on the `gidora` branch, so name the branch when you add it:
+
+```
+claude plugin marketplace add "pkarpovich/gidora#gidora"
+claude plugin install gidoractl@gidora
+```
+
+To try an edit to the skill before it is pushed, start Claude Code with `claude --plugin-dir ./plugins/gidoractl`, which shadows the installed copy for that session.
+
 ## Development
 
 ```sh

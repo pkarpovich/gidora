@@ -1,0 +1,4 @@
+{
+  "name": "gidoractl",
+  "description": "Drive the user's running Gidora browser from the command line: open background tabs in the signed-in profile, read pages, run scripts, take screenshots, click and type."
+}
