@@ -80,3 +80,42 @@ codesign --verify --deep --strict "$app"
 "$app/Contents/MacOS/Gidora" --version
 echo "signed: $PWD/$app"
 '''
+
+[tasks.dmg]
+description = "Sign and notarize the release app, then package it into a notarized DMG"
+dir = "{{config_root}}/build/src"
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+# The profile is created once with `xcrun notarytool store-credentials`.
+profile="${GIDORA_NOTARY_PROFILE:-gidora-notary}"
+identity=$(security find-identity -v -p codesigning | sed -n 's/^ *[0-9]*) [0-9A-F]* "\(Developer ID Application: .*\)"$/\1/p' | head -1)
+if [ -z "$identity" ]; then
+  echo "no Developer ID Application identity in the keychain" >&2
+  exit 1
+fi
+root=$(cd ../.. && pwd)
+rm -rf out/Default/signed
+python3 "out/Default/Gidora Packaging/sign_chrome.py" \
+  --input out/Default --output out/Default/signed --identity "$identity" \
+  --disable-packaging --notarize staple --notary-arg=--keychain-profile="$profile"
+app=$(find out/Default/signed -maxdepth 3 -name Gidora.app | head -1)
+version=$("$app/Contents/MacOS/Gidora" --version | awk '{print $2}')
+arch=$(lipo -archs "$app/Contents/MacOS/Gidora")
+dmg="$root/build/Gidora-$version-$arch.dmg"
+rm -f "$dmg"
+chrome/installer/mac/pkg-dmg \
+  --sourcefile --source "$app" --target "$dmg" \
+  --volname Gidora --format ULMO \
+  --icon "$app/Contents/Resources/app.icns" \
+  --symlink /Applications:/Applications \
+  --mkdir .background \
+  --copy "$root/resources/dmg_background.png:/.background/dmg_background.png" \
+  --copy "$root/resources/dmg_dsstore:/.DS_Store"
+codesign --sign "$identity" --identifier space.pkarpovich.gidora --force "$dmg"
+xcrun notarytool submit "$dmg" --keychain-profile "$profile" --wait
+xcrun stapler staple "$dmg"
+spctl --assess --type execute -vv "$app"
+spctl --assess --type open --context context:primary-signature -vv "$dmg"
+echo "dmg: $dmg"
+'''
