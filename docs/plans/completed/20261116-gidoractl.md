@@ -367,19 +367,19 @@ A tab opened by `tab.new` is an agent tab. It gets a DevTools session with focus
 - [x] run `mise run release-update` there and record the duration in this plan. Measured on 2026-11-16: 3 min 23 s, 30 steps, for the two new patches
 - [x] run `mise run sign` there and confirm the signature and `Gidora --version`
 - [x] ➕ run `mise run e2e` against the signed app on a temporary profile (`GIDORA_BROWSER=<signed app binary>`). All cases pass
-- [ ] ⚠️ stop and ask the user before this step: replacing the installed app means quitting his browser. With his go-ahead, quit Gidora gracefully, move `/Applications/Gidora.app` to `build/Gidora.prev.app` in the release worktree, copy the signed app to `/Applications/Gidora.app` with `ditto`, and start it
-- [ ] run `mise run ctl-install` and confirm that `gidoractl version` answers from a new shell once the toggle is on (see Post-Completion)
-- [ ] acceptance on the real profile: note the active tab from `gidoractl tab list`; `tab new` with an allegro.pl search URL; `tab text`; `tab eval` with a script written for this run that returns the offers as JSON; `tab new` with one product URL; `tab text` and `tab shot` on it; `tab close` on both tabs; confirm that the active tab is the noted one. If a human check page appears, tell the user which tab to open, wait, and continue
-- [ ] record the acceptance result in this plan
+- [x] ⚠️ stop and ask the user before this step: replacing the installed app means quitting his browser. With his go-ahead, quit Gidora gracefully, move `/Applications/Gidora.app` to `build/Gidora.prev.app` in the release worktree, copy the signed app to `/Applications/Gidora.app` with `ditto`, and start it
+- [x] run `mise run ctl-install` and confirm that `gidoractl version` answers from a new shell once the toggle is on (see Post-Completion)
+- [x] acceptance on the real profile: note the active tab from `gidoractl tab list`; `tab new` with an allegro.pl search URL; `tab text`; `tab eval` with a script written for this run that returns the offers as JSON; `tab new` with one product URL; `tab text` and `tab shot` on it; `tab close` on both tabs; confirm that the active tab is the noted one. If a human check page appears, tell the user which tab to open, wait, and continue
+- [x] record the acceptance result in this plan. Run on 2026-11-16 on the installed release build with the real profile: 14 allegro.pl searches and 9 product pages in one background tab through `tab go`, `tab eval` and `tab text`, a second background tab for one product with `tab text` and `tab shot` (full render, signed-in session), both tabs closed. No human check appeared. The active tab was the same before and after. `navigator.webdriver` was `false`
 
 ### Task 10: Verify acceptance criteria
 
-- [ ] every command of the CLI table works on the release build
-- [ ] every failure case of Tasks 3-6 is covered by `mise run e2e`, and it passes on the final dev tree
-- [ ] `mise run ctl-check` passes
-- [ ] the server is off on a fresh profile
-- [ ] `navigator.webdriver` is `false` in an agent tab (`gidoractl tab eval "navigator.webdriver"`)
-- [ ] the Non-goals list still holds: nothing from it was added
+- [x] every command of the CLI table works on the release build
+- [x] every failure case of Tasks 3-6 is covered by `mise run e2e`, and it passes on the final dev tree
+- [x] `mise run ctl-check` passes
+- [x] the server is off on a fresh profile
+- [x] `navigator.webdriver` is `false` in an agent tab (`gidoractl tab eval "navigator.webdriver"`)
+- [x] the Non-goals list still holds: nothing from it was added
 
 ### Task 11: [Final] Update documentation
 
@@ -388,8 +388,8 @@ A tab opened by `tab.new` is an agent tab. It gets a DevTools session with focus
 - Modify: `docs/plans/20261116-gidoractl.md`
 
 - [x] write `gidoractl/README.md`: what the tool is, how to turn the socket on, the command table with one example each, the pipe rules, the exit codes, the `--json` envelope, `GIDORA_SOCKET`, and how to run `mise run e2e`. The upstream `README.md` stays untouched to keep merges from upstream clean
-- [ ] move this plan to `docs/plans/completed/`
-- [ ] commit: `docs: describe gidoractl`. Push `gidora`
+- [x] move this plan to `docs/plans/completed/`
+- [x] commit: `docs: describe gidoractl`. Push `gidora`
 
 ## Post-Completion
 
