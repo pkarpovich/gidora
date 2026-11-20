@@ -14,7 +14,7 @@
  
 --- a/chrome/browser/ui/tabs/tab_strip_prefs.cc
 +++ b/chrome/browser/ui/tabs/tab_strip_prefs.cc
-@@ -37,6 +37,7 @@ void RegisterProfilePrefs(user_prefs::Pr
+@@ -38,6 +38,7 @@ void RegisterProfilePrefs(user_prefs::Pr
    registry->RegisterIntegerPref(prefs::kHeliumLayout,
                                  std::to_underlying(HeliumLayoutType::kClassic));
    registry->RegisterBooleanPref(prefs::kHeliumVerticalRightAligned, false);
@@ -125,7 +125,7 @@
  }
 --- a/chrome/browser/ui/views/tabs/common/pinned_tab_container_view.h
 +++ b/chrome/browser/ui/views/tabs/common/pinned_tab_container_view.h
-@@ -87,6 +87,7 @@ class PinnedTabContainerView
+@@ -91,6 +91,7 @@ class PinnedTabContainerView
  
    base::CallbackListSubscription node_destroyed_subscription_;
    base::CallbackListSubscription collapsed_state_changed_subscription_;
@@ -135,53 +135,21 @@
  #endif  // CHROME_BROWSER_UI_VIEWS_TABS_COMMON_PINNED_TAB_CONTAINER_VIEW_H_
 --- a/chrome/browser/ui/views/tabs/common/pinned_tab_container_view.cc
 +++ b/chrome/browser/ui/views/tabs/common/pinned_tab_container_view.cc
-@@ -73,6 +73,11 @@ PinnedTabContainerView::PinnedTabContain
-           state_controller->RegisterOnCollapseChanged(base::BindRepeating(
-               &PinnedTabContainerView::OnCollapseStateChanged,
-               base::Unretained(this)));
-+      pinned_tabs_per_row_changed_subscription_ =
-+          state_controller->RegisterOnPinnedTabsPerRowChanged(
-+              base::BindRepeating(&PinnedTabContainerView::InvalidateLayout,
-+                                  base::Unretained(this),
-+                                  /*avoid_propagate_during_layout=*/false));
-     }
+@@ -81,6 +81,11 @@ PinnedTabContainerView::PinnedTabContain
+         state_controller->RegisterOnCollapseChanged(
+             base::BindRepeating(&PinnedTabContainerView::OnCollapseStateChanged,
+                                 base::Unretained(this)));
++    pinned_tabs_per_row_changed_subscription_ =
++        state_controller->RegisterOnPinnedTabsPerRowChanged(
++            base::BindRepeating(&PinnedTabContainerView::InvalidateLayout,
++                                base::Unretained(this),
++                                /*avoid_propagate_during_layout=*/false));
    }
  }
-@@ -409,15 +414,25 @@ views::ProposedLayout PinnedTabContainer
-         GetLayoutConstant(LayoutConstant::kVerticalTabStripHorizontalPadding);
  
-     // When we are in collapsed state, only one child should be shown per row.
--    // During collapse animation and other cases, fit as many as possible.
-+    // During collapse animation and other cases, fit as many as possible, up
-+    // to the user's preferred number of pinned tabs per row.
-+    int max_children_on_row =
-+        static_cast<int>(std::floor((available_width - child_width) /
-+                                    (child_width + kTabPadding))) +
-+        1;
-+    const auto* controller =
-+        collection_node_ ? collection_node_->GetController() : nullptr;
-+    const auto* state_controller =
-+        controller ? controller->GetStateController() : nullptr;
-+    const int pinned_tabs_per_row =
-+        state_controller ? state_controller->GetPinnedTabsPerRow() : 0;
-+    if (pinned_tabs_per_row > 0) {
-+      max_children_on_row = std::min(max_children_on_row, pinned_tabs_per_row);
-+    }
-     children_on_row =
-         collapse_state == tabs::VerticalTabStripCollapseState::kCollapsed
-             ? 1
--            : std::min(
--                  children_on_row,
--                  static_cast<int>(std::floor((available_width - child_width) /
--                                              (child_width + kTabPadding)) +
--                                   1));
-+            : std::min(children_on_row, max_children_on_row);
- 
-     // Allocate extra space to the tabs.
-     available_width -=
 --- a/chrome/browser/extensions/api/settings_private/prefs_util.cc
 +++ b/chrome/browser/extensions/api/settings_private/prefs_util.cc
-@@ -225,6 +225,8 @@ const PrefsUtil::TypedPrefMap& PrefsUtil
+@@ -226,6 +226,8 @@ const PrefsUtil::TypedPrefMap& PrefsUtil
    (*s_allowlist)[::prefs::kHeliumLayout] = settings_api::PrefType::kNumber;
    (*s_allowlist)[::prefs::kHeliumVerticalRightAligned] =
        settings_api::PrefType::kBoolean;
@@ -192,7 +160,7 @@
    (*s_allowlist)[::prefs::kHeliumMinimalLocationBar] =
 --- a/chrome/app/settings_strings.grdp
 +++ b/chrome/app/settings_strings.grdp
-@@ -307,6 +307,12 @@
+@@ -372,6 +372,12 @@
      <message name="IDS_SETTINGS_TAB_STRIP_RIGHT_ALIGN" desc="Label for the toggle that displays vertical tabs on the right side of the browser window.">
        Show vertical tabs on right side
      </message>
@@ -207,7 +175,7 @@
      </message>
 --- a/chrome/browser/ui/webui/settings/settings_localized_strings_provider.cc
 +++ b/chrome/browser/ui/webui/settings/settings_localized_strings_provider.cc
-@@ -617,6 +617,9 @@ void AddAppearanceStrings(content::WebUI
+@@ -645,6 +645,9 @@ void AddAppearanceStrings(content::WebUI
        {"browserLayoutCompact", IDS_SETTINGS_BROWSER_LAYOUT_COMPACT},
        {"browserLayoutVertical", IDS_SETTINGS_BROWSER_LAYOUT_VERTICAL},
        {"tabStripRightAlign", IDS_SETTINGS_TAB_STRIP_RIGHT_ALIGN},
@@ -242,8 +210,8 @@
 +      pinnedTabsPerRowOptions_: {type: Array},
        zenModePref_: {type: Object},
        zenModeSidebarPinnedPref_: {type: Object},
-       forcedExpandOnHoverPref_: {type: Object},
-@@ -93,6 +96,14 @@ export class SettingsAppearanceLayoutPag
+     };
+@@ -87,6 +90,14 @@ export class SettingsAppearanceLayoutPag
      },
    ];
  
@@ -277,3 +245,47 @@
    <settings-toggle-button class="hr" disabled
        ?hidden="${!this.showVerticalTabsExpandOnHoverSetting_() ||
                   !this.isExpandOnHoverForcedByZenMode_()}"
+--- a/chrome/browser/ui/views/tabs/common/pinned_tab_container_view_vertical_layout.cc
++++ b/chrome/browser/ui/views/tabs/common/pinned_tab_container_view_vertical_layout.cc
+@@ -12,6 +12,7 @@
+ #include "chrome/browser/ui/tabs/vertical_tab_strip_state_controller.h"
+ #include "chrome/browser/ui/views/tabs/common/pinned_tab_container_view.h"
+ #include "chrome/browser/ui/views/tabs/common/tab_collection_node.h"
++#include "chrome/browser/ui/views/tabs/common/tab_strip_collection_controller.h"
+ #include "ui/gfx/geometry/rect.h"
+ #include "ui/gfx/geometry/size.h"
+ #include "ui/views/layout/proposed_layout.h"
+@@ -89,16 +90,26 @@ PinnedTabContainerViewVerticalLayout::Ca
+         GetLayoutConstant(LayoutConstant::kVerticalTabStripHorizontalPadding);
+ 
+     // When we are in collapsed state, only one child should be shown per row.
+-    // During collapse animation and other cases, fit as many as possible.
++    // During collapse animation and other cases, fit as many as possible, up
++    // to the user's preferred number of pinned tabs per row.
++    int max_children_on_row =
++        static_cast<int>(
++            std::floor((available_width - child_width) /
++                       (child_width + PinnedTabContainerView::kTabPadding))) +
++        1;
++    const auto* controller =
++        PinnedTabContainerView().collection_node_->GetController();
++    const auto* state_controller =
++        controller ? controller->GetStateController() : nullptr;
++    const int pinned_tabs_per_row =
++        state_controller ? state_controller->GetPinnedTabsPerRow() : 0;
++    if (pinned_tabs_per_row > 0) {
++      max_children_on_row = std::min(max_children_on_row, pinned_tabs_per_row);
++    }
+     children_on_row =
+         collapse_state == tabs::VerticalTabStripCollapseState::kCollapsed
+             ? 1
+-            : std::min(children_on_row,
+-                       static_cast<int>(
+-                           std::floor((available_width - child_width) /
+-                                      (child_width +
+-                                       PinnedTabContainerView::kTabPadding)) +
+-                           1));
++            : std::min(children_on_row, max_children_on_row);
+ 
+     // Allocate extra space to the tabs.
+     available_width -=

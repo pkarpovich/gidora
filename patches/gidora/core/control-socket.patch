@@ -1,6 +1,6 @@
 --- a/chrome/browser/BUILD.gn
 +++ b/chrome/browser/BUILD.gn
-@@ -1039,6 +1039,18 @@ source_set("core") {
+@@ -1041,6 +1041,18 @@ source_set("core") {
      "file_select_helper.cc",
      "font_family_cache.cc",
      "font_family_cache.h",
@@ -29,7 +29,7 @@
  #include "chrome/browser/gpu/chrome_browser_main_extra_parts_gpu.h"
  #include "chrome/browser/language/url_language_histogram_factory.h"
  #include "chrome/browser/lifetime/browser_shutdown.h"
-@@ -1731,6 +1732,9 @@ void ChromeBrowserMainParts::PostBrowser
+@@ -1735,6 +1736,9 @@ void ChromeBrowserMainParts::PostBrowser
      chrome_extra_part->PostBrowserStart();
    }
  
@@ -39,7 +39,7 @@
    browser_process_->browser_policy_connector()->OnBrowserStarted();
  
  #if BUILDFLAG(ENABLE_PROCESS_SINGLETON)
-@@ -2231,6 +2235,8 @@ void ChromeBrowserMainParts::PostMainMes
+@@ -2236,6 +2240,8 @@ void ChromeBrowserMainParts::PostMainMes
  
    web_usb_detector_.reset();
  
@@ -653,10 +653,10 @@
  #include "chrome/browser/external_protocol/external_protocol_handler.h"
  #include "chrome/browser/first_run/first_run.h"
 +#include "chrome/browser/gidora/control/control_prefs.h"
+ #include "chrome/browser/glic/gemini_enterprise/geic_pref_names.h"
  #include "chrome/browser/glic/glic_pref_names.h"
  #include "chrome/browser/glic/suggestions/contextual_cueing_prefs.h"
- #include "chrome/browser/gpu/gpu_mode_manager.h"
-@@ -1718,6 +1719,7 @@ void RegisterLocalState(PrefRegistrySimp
+@@ -1774,6 +1775,7 @@ void RegisterLocalState(PrefRegistrySimp
    ProfileNetworkContextService::RegisterLocalStatePrefs(registry);
    profiles::RegisterPrefs(registry);
    feature_engagement::RegisterLocalStatePrefs(registry);
@@ -893,7 +893,7 @@
 +    return;
 +  }
 +  NavigateParams params(window, url.value(), ApiTransition());
-+  params.disposition = WindowOpenDisposition::NEW_BACKGROUND_TAB;
++  params.disposition = WindowOpenDisposition::kNewBackgroundTab;
 +  Navigate(&params);
 +  content::WebContents* contents = params.navigated_or_inserted_contents;
 +  if (!contents) {
@@ -1681,7 +1681,7 @@
  #include "chrome/browser/glic/glic_pref_names.h"
  #include "chrome/browser/metrics/profile_pref_names.h"
  #include "chrome/browser/nearby_sharing/common/nearby_share_prefs.h"
-@@ -227,6 +228,8 @@ const PrefsUtil::TypedPrefMap& PrefsUtil
+@@ -228,6 +229,8 @@ const PrefsUtil::TypedPrefMap& PrefsUtil
        settings_api::PrefType::kBoolean;
    (*s_allowlist)[::prefs::kHeliumVerticalPinnedTabsPerRow] =
        settings_api::PrefType::kNumber;

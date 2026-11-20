@@ -73,23 +73,22 @@
    HISTORY_SEARCH: Route;
 --- a/chrome/browser/resources/settings/settings_main/settings_main.html
 +++ b/chrome/browser/resources/settings/settings_main/settings_main.html
-@@ -137,6 +137,13 @@
+@@ -90,6 +90,12 @@ ${this.showResetProfileBanner_ ? html`
      </div>
-   </template>
+   ` : ''}
  
 +  <div slot="view" id="gidora">
-+    <template is="dom-if" if="[[renderPlugin_(
-+        routes_.GIDORA, lastRoute_, inSearchMode_)]]">
++    ${this.renderPlugin_(this.routes_.GIDORA) ? html`
 +      <settings-gidora-page></settings-gidora-page>
-+    </template>
++    ` : ''}
 +  </div>
 +
-   <template is="dom-if" if="[[showPage_(pageVisibility_.languages)]]">
+   ${this.showPage_(this.pageVisibility_?.languages) ? html`
      <div slot="view" id="languages">
-       <template is="dom-if" if="[[renderPlugin_(
+       ${this.renderPlugin_(this.routes_.LANGUAGES) ? html`
 --- a/chrome/browser/resources/settings/settings_main/settings_main.ts
 +++ b/chrome/browser/resources/settings/settings_main/settings_main.ts
-@@ -14,6 +14,7 @@ import '../about_page/about_page.js';
+@@ -13,6 +13,7 @@ import '../about_page/about_page.js';
  import '../ai_page/ai_page_index.js';
  import '../appearance_page/appearance_page_index.js';
  import '../autofill_page/autofill_page_index.js';
