@@ -1,6 +1,6 @@
 --- a/ui/views/widget/native_widget_mac.h
 +++ b/ui/views/widget/native_widget_mac.h
-@@ -227,6 +227,11 @@
+@@ -227,6 +227,11 @@ class VIEWS_EXPORT NativeWidgetMac : pub
        Widget::MoveLoopSource source,
        Widget::MoveLoopEscapeBehavior escape_behavior) override;
    void EndMoveLoop() override;
@@ -14,7 +14,7 @@
    void SetVisibilityAnimationTransition(
 --- a/ui/views/widget/native_widget_mac.mm
 +++ b/ui/views/widget/native_widget_mac.mm
-@@ -1070,6 +1070,31 @@
+@@ -1070,6 +1070,31 @@ void NativeWidgetMac::EndMoveLoop() {
    }
  }
  
@@ -64,7 +64,7 @@
  #include "ui/gfx/animation/multi_animation.h"
  #include "ui/gfx/range/range.h"
  #include "ui/views/animation/animation_delegate_views.h"
-@@ -184,6 +186,12 @@
+@@ -184,6 +186,12 @@ class OmniboxViewViews
    // views::Textfield:
    gfx::Size GetMinimumSize() const override;
    bool SupportsDrag() const override;
@@ -77,7 +77,7 @@
    bool OnMousePressed(const ui::MouseEvent& event) override;
    bool OnMouseDragged(const ui::MouseEvent& event) override;
    void OnMouseReleased(const ui::MouseEvent& event) override;
-@@ -425,6 +433,11 @@
+@@ -442,6 +450,11 @@ class OmniboxViewViews
    // Returns the AI Mode page action icon view, if present, or nullptr if the
    // view doesn't exist.
    IconLabelBubbleView* GetAiModePageActionIconView() const;
@@ -89,7 +89,7 @@
  
    // When true, the location bar view is read only and also is has a slightly
    // different presentation (smaller font size). This is used for popups.
-@@ -451,6 +464,14 @@
+@@ -468,6 +481,14 @@ class OmniboxViewViews
    bool ime_candidate_window_open_ = false;
  #endif
  
@@ -106,7 +106,7 @@
  
 --- a/chrome/browser/ui/views/omnibox/omnibox_view_views.cc
 +++ b/chrome/browser/ui/views/omnibox/omnibox_view_views.cc
-@@ -147,6 +147,7 @@
+@@ -149,6 +149,7 @@
  
  #if BUILDFLAG(IS_MAC)
  #include "ui/base/cocoa/appkit_utils.h"
@@ -114,12 +114,10 @@
  #endif
  
  #if BUILDFLAG(IS_WIN)
-@@ -1461,9 +1462,67 @@
-   // existing selection bounds, ensuring drag-to-select works and can be synced
-   // to the WebUI popup input on mouse release.
+@@ -1448,7 +1449,65 @@ bool OmniboxViewViews::SupportsDrag() co
    return !IsFullWebUIOmniboxReady();
-+}
-+
+ }
+ 
 +#if BUILDFLAG(IS_MAC)
 +int OmniboxViewViews::GetDragOperationsForView(views::View* sender,
 +                                              const gfx::Point& p) {
@@ -156,8 +154,8 @@
 +  // PerformWindowDrag() reports a missing in-process window by returning false.
 +  const views::Widget* const widget = GetWidget();
 +  return widget && !widget->IsFullscreen();
- }
- 
++}
++
 +bool OmniboxViewViews::StartUnfocusedWindowDrag() {
 +  views::Widget* const widget = GetWidget();
 +  if (!widget || !widget->native_widget_private()) {
@@ -182,7 +180,7 @@
    PermitExternalProtocolHandler();
  
    // Clear focus of buttons, but do not clear keyword mode.
-@@ -1608,6 +1667,29 @@
+@@ -1605,6 +1664,29 @@ bool OmniboxViewViews::OnMousePressed(co
  }
  
  bool OmniboxViewViews::OnMouseDragged(const ui::MouseEvent& event) {
@@ -212,7 +210,7 @@
    if (filter_drag_events_for_unelision_ &&
        !ExceededDragThreshold(event.root_location() -
                               GetLastClickRootLocation())) {
-@@ -1631,6 +1713,14 @@
+@@ -1628,6 +1710,14 @@ bool OmniboxViewViews::OnMouseDragged(co
  }
  
  void OmniboxViewViews::OnMouseReleased(const ui::MouseEvent& event) {
@@ -227,7 +225,7 @@
    PermitExternalProtocolHandler();
  
    views::Textfield::OnMouseReleased(event);
-@@ -1720,6 +1810,9 @@
+@@ -1708,6 +1798,9 @@ void OmniboxViewViews::OnMouseReleased(c
  }
  
  void OmniboxViewViews::OnMouseCaptureLost() {
