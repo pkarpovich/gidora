@@ -48,7 +48,23 @@
      GetNSWindowMojo()->SetAnimationEnabled(value);
 --- a/chrome/browser/ui/views/omnibox/omnibox_view_views.h
 +++ b/chrome/browser/ui/views/omnibox/omnibox_view_views.h
-@@ -184,6 +184,12 @@
+@@ -8,6 +8,7 @@
+ #include <stddef.h>
+ 
+ #include <memory>
++#include <optional>
+ #include <set>
+ #include <string>
+ #include <string_view>
+@@ -32,6 +33,7 @@
+ #include "ui/compositor/compositor.h"
+ #include "ui/compositor/compositor_observer.h"
+ #include "ui/compositor/layer_tree_owner.h"
++#include "ui/events/event.h"
+ #include "ui/gfx/animation/multi_animation.h"
+ #include "ui/gfx/range/range.h"
+ #include "ui/views/animation/animation_delegate_views.h"
+@@ -184,6 +186,12 @@
    // views::Textfield:
    gfx::Size GetMinimumSize() const override;
    bool SupportsDrag() const override;
@@ -61,40 +77,33 @@
    bool OnMousePressed(const ui::MouseEvent& event) override;
    bool OnMouseDragged(const ui::MouseEvent& event) override;
    void OnMouseReleased(const ui::MouseEvent& event) override;
-@@ -425,6 +431,12 @@
+@@ -425,6 +433,11 @@
    // Returns the AI Mode page action icon view, if present, or nullptr if the
    // view doesn't exist.
    IconLabelBubbleView* GetAiModePageActionIconView() const;
 +#if BUILDFLAG(IS_MAC)
 +  bool CanDeferPressForWindowDrag(const ui::MouseEvent& event) const;
-+  ui::MouseEvent MakeUnfocusedWindowDragPressEvent() const;
 +  // Returns true when AppKit took over the gesture. May destroy `this`.
 +  bool StartUnfocusedWindowDrag();
 +#endif
  
    // When true, the location bar view is read only and also is has a slightly
    // different presentation (smaller font size). This is used for popups.
-@@ -449,6 +461,20 @@
-   // avoid showing the popup. So far, the candidate window is detected only
-   // on Chrome OS.
+@@ -451,6 +464,14 @@
    bool ime_candidate_window_open_ = false;
-+#endif
-+
-+#if BUILDFLAG(IS_MAC)
-+  // Set while a press on the unfocused omnibox is waiting to become either a
-+  // click (focus the field) or a window drag.
-+  bool deferring_unfocused_window_drag_ = false;
-+  bool replaying_unfocused_click_ = false;
-+  bool suppress_mouse_release_after_window_drag_ = false;
-+  gfx::Point unfocused_press_location_;
-+  gfx::Point unfocused_press_root_location_;
-+  base::TimeTicks unfocused_press_time_;
-+  int unfocused_press_flags_ = 0;
-+  int unfocused_press_changed_flags_ = 0;
-+  int unfocused_press_click_count_ = 1;
  #endif
  
++#if BUILDFLAG(IS_MAC)
++  // Press waiting to become a click or a window drag. Cleared when the
++  // gesture resolves, including from OnMouseCaptureLost(): a window drag
++  // releases capture, so no mouse-up is delivered for that gesture.
++  std::optional<ui::MouseEvent> unfocused_window_drag_press_;
++  bool replaying_unfocused_click_ = false;
++#endif
++
    // True if any mouse button is currently depressed.
+   bool is_mouse_pressed_ = false;
+ 
 --- a/chrome/browser/ui/views/omnibox/omnibox_view_views.cc
 +++ b/chrome/browser/ui/views/omnibox/omnibox_view_views.cc
 @@ -147,6 +147,7 @@
@@ -105,10 +114,12 @@
  #endif
  
  #if BUILDFLAG(IS_WIN)
-@@ -1463,7 +1464,82 @@
+@@ -1461,9 +1462,67 @@
+   // existing selection bounds, ensuring drag-to-select works and can be synced
+   // to the WebUI popup input on mouse release.
    return !IsFullWebUIOmniboxReady();
- }
- 
++}
++
 +#if BUILDFLAG(IS_MAC)
 +int OmniboxViewViews::GetDragOperationsForView(views::View* sender,
 +                                              const gfx::Point& p) {
@@ -141,23 +152,12 @@
 +      controller()->IsPopupOpen()) {
 +    return false;
 +  }
-+  views::Widget* const widget = GetWidget();
-+  if (!widget || widget->IsFullscreen() || !widget->native_widget_private()) {
-+    return false;
-+  }
-+  auto* const native_widget =
-+      static_cast<views::NativeWidgetMac*>(widget->native_widget_private());
-+  return native_widget->GetInProcessNSWindowBridge() != nullptr;
-+}
-+
-+ui::MouseEvent OmniboxViewViews::MakeUnfocusedWindowDragPressEvent() const {
-+  ui::MouseEvent press(ui::EventType::kMousePressed, unfocused_press_location_,
-+                       unfocused_press_root_location_, unfocused_press_time_,
-+                       unfocused_press_flags_, unfocused_press_changed_flags_);
-+  press.SetClickCount(unfocused_press_click_count_);
-+  return press;
-+}
-+
++  // This method is const, so GetWidget() returns a const Widget*.
++  // PerformWindowDrag() reports a missing in-process window by returning false.
++  const views::Widget* const widget = GetWidget();
++  return widget && !widget->IsFullscreen();
+ }
+ 
 +bool OmniboxViewViews::StartUnfocusedWindowDrag() {
 +  views::Widget* const widget = GetWidget();
 +  if (!widget || !widget->native_widget_private()) {
@@ -175,31 +175,28 @@
 +  // stays inside the drag threshold replays this press and keeps the normal
 +  // click-to-edit behavior, including select-all.
 +  if (CanDeferPressForWindowDrag(event)) {
-+    deferring_unfocused_window_drag_ = true;
-+    unfocused_press_location_ = event.location();
-+    unfocused_press_root_location_ = event.root_location();
-+    unfocused_press_time_ = event.time_stamp();
-+    unfocused_press_flags_ = event.flags();
-+    unfocused_press_changed_flags_ = event.changed_button_flags();
-+    unfocused_press_click_count_ = event.GetClickCount();
++    unfocused_window_drag_press_ = event;
 +    return true;
 +  }
 +#endif
    PermitExternalProtocolHandler();
  
    // Clear focus of buttons, but do not clear keyword mode.
-@@ -1608,6 +1684,27 @@
+@@ -1608,6 +1667,29 @@
  }
  
  bool OmniboxViewViews::OnMouseDragged(const ui::MouseEvent& event) {
 +#if BUILDFLAG(IS_MAC)
-+  if (deferring_unfocused_window_drag_) {
-+    if (!ExceededDragThreshold(event.root_location() -
-+                               unfocused_press_root_location_)) {
++  if (unfocused_window_drag_press_) {
++    if (!ExceededDragThreshold(
++            event.root_location() -
++            unfocused_window_drag_press_->root_location())) {
 +      return true;
 +    }
-+    deferring_unfocused_window_drag_ = false;
-+    suppress_mouse_release_after_window_drag_ = true;
++    // Copy and clear before PerformWindowDrag(). It releases capture, and
++    // OnMouseCaptureLost() drops this press because no mouse-up follows.
++    ui::MouseEvent press = *unfocused_window_drag_press_;
++    unfocused_window_drag_press_.reset();
 +    base::WeakPtr<OmniboxViewViews> weak_this = weak_factory_.GetWeakPtr();
 +    const bool started = StartUnfocusedWindowDrag();
 +    if (!weak_this) {
@@ -208,38 +205,34 @@
 +    if (started) {
 +      return true;
 +    }
-+    suppress_mouse_release_after_window_drag_ = false;
 +    base::AutoReset<bool> replaying(&replaying_unfocused_click_, true);
-+    OnMousePressed(MakeUnfocusedWindowDragPressEvent());
++    OnMousePressed(press);
 +  }
 +#endif
    if (filter_drag_events_for_unelision_ &&
        !ExceededDragThreshold(event.root_location() -
                               GetLastClickRootLocation())) {
-@@ -1631,6 +1728,17 @@
+@@ -1631,6 +1713,14 @@
  }
  
  void OmniboxViewViews::OnMouseReleased(const ui::MouseEvent& event) {
 +#if BUILDFLAG(IS_MAC)
-+  if (suppress_mouse_release_after_window_drag_) {
-+    suppress_mouse_release_after_window_drag_ = false;
-+    return;
-+  }
-+  if (deferring_unfocused_window_drag_) {
-+    deferring_unfocused_window_drag_ = false;
++  if (unfocused_window_drag_press_) {
++    ui::MouseEvent press = *unfocused_window_drag_press_;
++    unfocused_window_drag_press_.reset();
 +    base::AutoReset<bool> replaying(&replaying_unfocused_click_, true);
-+    OnMousePressed(MakeUnfocusedWindowDragPressEvent());
++    OnMousePressed(press);
 +  }
 +#endif
    PermitExternalProtocolHandler();
  
    views::Textfield::OnMouseReleased(event);
-@@ -1720,6 +1828,9 @@
+@@ -1720,6 +1810,9 @@
  }
  
  void OmniboxViewViews::OnMouseCaptureLost() {
 +#if BUILDFLAG(IS_MAC)
-+  deferring_unfocused_window_drag_ = false;
++  unfocused_window_drag_press_.reset();
 +#endif
    // In Full WebUI mode, `is_mouse_pressed_` directly controls whether selection
    // highlights are rendered in steady-state (via `OnPaint`) and whether the
