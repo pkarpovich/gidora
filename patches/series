@@ -32,3 +32,4 @@ gidora/ui/drag-window-from-unfocused-omnibox.patch
 gidora/core/gidora-identity.patch
 gidora/core/control-socket.patch
 gidora/core/remote-debugging-guard.patch
+gidora/settings/password-manager-toggle.patch
